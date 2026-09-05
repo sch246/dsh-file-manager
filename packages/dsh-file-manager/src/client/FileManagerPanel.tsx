@@ -28,27 +28,30 @@ interface FileManagerPanelActions extends FileManagerPanelInjected {
 }
 
 function EntryRows({
-  instance, directory, depth, actions,
+  instance, directory, depth, actions, ancestors = [],
 }: {
   readonly instance: FileManagerSnapshot
   readonly directory: FileManagerDirectory
   readonly depth: number
   readonly actions: FileManagerPanelActions
+  readonly ancestors?: readonly string[]
 }) {
   return <>{directory.entries.map(entry => (
-    <EntryRow key={entry.path} instance={instance} entry={entry} depth={depth} actions={actions} />
+    <EntryRow key={entry.path} instance={instance} entry={entry} depth={depth} actions={actions} ancestors={[...ancestors, directory.path]} />
   ))}</>
 }
 
 function EntryRow({
-  instance, entry, depth, actions,
+  instance, entry, depth, actions, ancestors,
 }: {
   readonly instance: FileManagerSnapshot
   readonly entry: FileManagerEntry
   readonly depth: number
   readonly actions: FileManagerPanelActions
+  readonly ancestors: readonly string[]
 }) {
-  const expanded = instance.expanded[entry.canonicalPath]
+  const cyclic = ancestors.includes(entry.canonicalPath)
+  const expanded = cyclic ? undefined : instance.expanded[entry.canonicalPath]
   const directory = entry.kind === 'directory'
   const move = (): void => {
     const destination = actions.prompt(actions.t('movePrompt'), entry.path)
@@ -76,12 +79,13 @@ function EntryRow({
               type="button"
               className="dsh-file-manager-expand"
               aria-label={actions.t(expanded === undefined ? 'expand' : 'collapse')}
+              disabled={cyclic}
               onClick={() => { actions.toggleExpanded(entry.canonicalPath) }}
             >
               {expanded === undefined ? '›' : '⌄'}
             </button>
           )
-          : <span className="dsh-file-manager-expand" aria-hidden>·</span>}
+          : <span className="dsh-file-manager-expand" aria-hidden />}
         <button
           type="button"
           className="dsh-file-manager-name"
@@ -93,13 +97,23 @@ function EntryRow({
             else if (entry.kind === 'file') actions.openFile(entry)
           }}
         >
-          <span aria-hidden>{directory ? '📁' : entry.symbolicLink ? '↗' : '·'}</span>
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden>
+            {directory
+              ? <path d="M2.5 5.5h6l2 2h7v8.5h-15z" />
+              : <path d="M5 2.5h6l4 4v11H5zM11 2.5v4h4" />}
+          </svg>
           <span>{entry.name}</span>
         </button>
-        <button type="button" className="dsh-file-manager-row-action" onClick={move}>{actions.t('renameMove')}</button>
-        <button type="button" className="dsh-file-manager-row-action is-danger" onClick={remove}>{actions.t('delete')}</button>
+        <span className="dsh-file-manager-row-actions">
+          <button type="button" className="dsh-file-manager-row-action" title={actions.t('renameMove')} aria-label={actions.t('renameMove')} onClick={move}>
+            <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="m12 3 5 5-9 9H3v-5zM10 5l5 5" /></svg>
+          </button>
+          <button type="button" className="dsh-file-manager-row-action is-danger" title={actions.t('delete')} aria-label={actions.t('delete')} onClick={remove}>
+            <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="M3 5h14M7 5V3h6v2M5 5l1 12h8l1-12M8 8v6M12 8v6" /></svg>
+          </button>
+        </span>
       </div>
-      {expanded !== undefined && <EntryRows instance={instance} directory={expanded} depth={depth + 1} actions={actions} />}
+      {expanded !== undefined && <EntryRows instance={instance} directory={expanded} depth={depth + 1} actions={actions} ancestors={ancestors} />}
     </>
   )
 }

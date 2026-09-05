@@ -86,37 +86,6 @@ export interface FileManagerMoveRequest {
   readonly destination: string
 }
 
-/** Guarded text save request. */
-export interface FileManagerSaveRequest extends FileManagerPathRequest {
-  readonly text: string
-  readonly version: FileManagerRevision
-}
-
-/** Successful guarded text save. */
-export interface FileManagerSaveResult { readonly version: FileManagerRevision }
-
-/** Current exact revision for polling, or absence after removal. */
-export interface FileManagerVersionResult {
-  readonly path: string
-  readonly version?: FileManagerRevision
-}
-
-/** New immediate child request. */
-export interface FileManagerCreateRequest extends FileManagerPathRequest {
-  readonly name: string
-  readonly kind: 'file' | 'directory'
-}
-
-/** Successful creation result. */
-export interface FileManagerCreateResult { readonly path: string }
-
-/** Move or rename request. */
-export interface FileManagerMoveRequest {
-  readonly sessionId: SessionId
-  readonly source: string
-  readonly destination: string
-}
-
 /** Successful move result. */
 export interface FileManagerMoveResult { readonly path: string }
 

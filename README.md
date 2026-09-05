@@ -23,6 +23,7 @@ The Bundle inserts:
     maxReadBytes: 1048576
     pollIntervalMs: 2000
     openMode: preview-or-system
+    moveCommand: mv
 ```
 
 `maxReadBytes` is the inclusive complete UTF-8 load/save limit. `pollIntervalMs` is the delay after each completed viewer-source poll; polls never overlap and exist only while the source is subscribed. `openMode` controls Chat file links. Profile and Home patch layers replace a row's complete `config`, so preserve all fields when overriding one.
@@ -33,13 +34,15 @@ Loads accept regular UTF-8 files without NUL bytes. CRLF and CR are canonicalize
 
 The source reports `supportsConditionalSave: true` with a bounded guarantee: writes issued by this plugin to one canonical resource are serialized, and every save rechecks the exact loaded hash/stat revision immediately before atomic replacement. Ordinary portable filesystems do not offer universal compare-and-swap against an uncooperative external writer in the interval between the last check and rename. Such a writer can still race publication.
 
-Create and move operations reject destinations observed to exist and serialize plugin mutations. An external process can race the final existence check on platforms without a portable no-replace rename. The plugin never intentionally overwrites an observed destination.
+Create operations use exclusive filesystem creation. Moves use the configured GNU `moveCommand` with `--no-clobber`, `--no-copy`, and `--no-target-directory`; a late destination cannot be replaced on the current Linux filesystem's no-replace rename path. Cross-filesystem moves and hosts without these GNU options fail without a copy/delete fallback. The default command is `mv`; configure its executable path when needed. See [GNU mv](https://www.gnu.org/s/coreutils/manual/html_node/mv-invocation.html).
 
 Staged saves restore permission bits. Replacing an inode can change ownership, access-control entries, extended attributes, and other filesystem-specific metadata; this editor does not promise to preserve those fields.
 
 ## Removal safety
 
 The UI asks the user to type the complete path. The Host requires an exact normalized match, rejects filesystem root, and sends files, links, empty directories, or non-empty directories to the operating system's recoverable trash through `trash`. It never runs recursive permanent deletion.
+
+Confirmation addresses the named path, not a retained inode. An external process can replace a path between selection and the trash operation; inspect the operating-system trash when recovering it.
 
 ## Build and test
 

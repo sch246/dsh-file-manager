@@ -8,7 +8,7 @@ Provide an authenticated DeepSeek Harness Web file manager for browsing and edit
 
 ## Stable behavior
 
-- The `fileManager` Host Remote uses Node filesystem APIs. It lists directories lazily, follows symbolic links for navigation and text-resource identity, and retains the user-visible link path for move and trash actions.
+- The `fileManager` Host Remote uses Node filesystem APIs and configurable GNU `mv` for no-clobber moves without copy/delete fallback. It lists directories lazily, follows symbolic links for navigation and text-resource identity, and retains the user-visible link path for move and trash actions.
 - The Files launcher opens one tree instance per Session in the right-sidebar workbench. Address navigation, refresh, hidden entries, create, move/rename, and recoverable trash are available from the tree.
 - Creating and moving reject an existing target. Trash rejects filesystem root and requires the exact normalized path as confirmation. Production deletion uses the operating system's recoverable trash mechanism; the plugin performs no recursive permanent deletion.
 - The `filesystem` viewer source accepts regular bounded UTF-8 files without NUL bytes. Loads canonicalize CRLF and CR to LF and retain EOL metadata in the opaque revision. Saves restore the loaded EOL convention, including an exact mixed-EOL pattern for existing lines, and preserve terminal-newline presence represented by editor text.

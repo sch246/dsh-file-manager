@@ -5,3 +5,4 @@
         maxReadBytes: 1048576
         pollIntervalMs: 2000
         openMode: preview-or-system
+        moveCommand: mv

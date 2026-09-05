@@ -25,6 +25,7 @@ import {
   type FilesystemSourceGateway,
 } from './source.ts'
 import { FILE_MANAGER_CSS } from './styles.ts'
+import type { FileManagerResolvedPath } from '../types.ts'
 
 export type {
   FileManagerGateway, FileManagerSelection, FileManagerSnapshot, FileManagerViewer,
@@ -44,14 +45,19 @@ function valueOf<T>(result: RemoteResult<T>): T {
 /** Build the Chat waterfall listener while preserving its terminal native opener. */
 export function createFileManagerChatListener(
   mode: 'preview' | 'system' | 'preview-or-system',
-  resolvePath: (sessionId: SessionId, path: string) => Promise<string>,
+  resolvePath: (sessionId: SessionId, path: string) => Promise<FileManagerResolvedPath>,
   open: (ref: FileViewerDocumentRef) => Promise<unknown>,
+  openDirectory: (sessionId: SessionId, path: string) => Promise<unknown>,
 ): (request: ChatFileOpenRequest, next: () => Promise<void>) => Promise<void> {
   return async (request, next) => {
     if (mode === 'system') return await next()
     const preview = async (): Promise<void> => {
-      const path = await resolvePath(request.sessionId, request.path)
-      await open({ sessionId: request.sessionId, sourceId: FileViewerSourceId('filesystem'), resourceId: path })
+      const target = await resolvePath(request.sessionId, request.path)
+      if (target.kind === 'directory') {
+        await openDirectory(request.sessionId, target.path)
+      } else {
+        await open({ sessionId: request.sessionId, sourceId: FileViewerSourceId('filesystem'), resourceId: target.path })
+      }
     }
     if (mode === 'preview') return await preview()
     try {
@@ -84,7 +90,8 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
       valueOf(await ctx.remote.fileManager.trash({ sessionId, path, confirmation }, signal))
     },
   }
-  const nativeOpen = valueOf(await ctx.remote.session.canOpenWorkspacePath())
+  // Native opening is optional; its probe must not gate browser file management.
+  const nativeOpen = await ctx.remote.session.canOpenWorkspacePath().then(result => result.ok && result.value, () => false)
   const sourceGateway: FilesystemSourceGateway = {
     readText: async (sessionId, path, signal) => valueOf(
       await ctx.remote.fileManager.readText({ sessionId, path }, signal),
@@ -120,8 +127,9 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
       metadata.openMode,
       async (sessionId, path) => valueOf(
         await ctx.remote.fileManager.resolve({ sessionId, path }),
-      ).path,
+      ),
       ref => viewer.open(ref),
+      (sessionId, path) => runtime.open(sessionId, { path }),
     ),
   )
   const offPresentation = ctx.effect(() => {

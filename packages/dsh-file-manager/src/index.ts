@@ -21,6 +21,8 @@ export interface Config {
   pollIntervalMs: number
   /** Chat workspace-file link routing policy. */
   openMode: 'preview' | 'system' | 'preview-or-system'
+  /** GNU mv executable; unsupported platforms fail without copying or deleting the source. */
+  moveCommand: string
 }
 
 /** Validated deployment tunables. */
@@ -28,10 +30,11 @@ export const Config: z<Config> = z.object({
   maxReadBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).required(),
   pollIntervalMs: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).required(),
   openMode: z.union(['preview', 'system', 'preview-or-system'] as const).default('preview-or-system'),
+  moveCommand: z.string().min(1).default('mv'),
 })
 
 /** Mount the authenticated user-filesystem Remote. */
 export function apply(ctx: Context, config: Config): void {
-  const filesystem = new FileManagerFilesystem(config.maxReadBytes, async paths => { await trash([...paths]) })
+  const filesystem = new FileManagerFilesystem(config.maxReadBytes, async paths => { await trash([...paths]) }, config.moveCommand)
   new FileManagerRemote(ctx, filesystem, config)
 }

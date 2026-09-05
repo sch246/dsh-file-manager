@@ -1,4 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import type { Stats } from 'node:fs'
 import {
   lstat, mkdir, open, readdir, realpath, rename, rm, stat,
@@ -63,6 +65,8 @@ interface ReadBytesResult {
 
 /** Recoverable-removal adapter used by production and fixture-local tests. */
 export type FileManagerTrash = (paths: readonly string[]) => Promise<void>
+
+const runFile = promisify(execFile)
 
 function normalizedAbsolute(path: string): string {
   if (path.trim() === '' || !isAbsolute(path)) {
@@ -171,13 +175,15 @@ function entryKind(value: Stats): FileManagerEntryKind {
 export class FileManagerFilesystem {
   readonly #maxReadBytes: number
   readonly #trash: FileManagerTrash
+  readonly #moveCommand: string
   readonly #writes = new Map<string, Promise<void>>()
   #mutationTail: Promise<void> = Promise.resolve()
 
-  /** @param maxReadBytes - Inclusive complete-read and save byte bound. @param trash - Recoverable-removal adapter. */
-  constructor(maxReadBytes: number, trash: FileManagerTrash) {
+  /** @param maxReadBytes - Inclusive complete-read and save byte bound. @param trash - Recoverable-removal adapter. @param moveCommand - GNU mv executable supporting --no-copy and --no-clobber. */
+  constructor(maxReadBytes: number, trash: FileManagerTrash, moveCommand: string) {
     this.#maxReadBytes = maxReadBytes
     this.#trash = trash
+    this.#moveCommand = moveCommand
   }
 
   /** Follow one existing path to its stable canonical identity and kind. */
@@ -351,7 +357,7 @@ export class FileManagerFilesystem {
     })
   }
 
-  /** Move or rename one path after refusing an existing destination. */
+  /** Rename with GNU mv's no-clobber operation; cross-filesystem copy/delete fallback is disabled. */
   async move(source: string, destination: string): Promise<{ path: string }> {
     const from = normalizedAbsolute(source)
     const to = normalizedAbsolute(destination)
@@ -370,7 +376,12 @@ export class FileManagerFilesystem {
             : ''
           if (code !== 'ENOENT') throw error
         }
-        await rename(from, to)
+        const result = await runFile(this.#moveCommand, [
+          '--no-clobber', '--no-copy', '--no-target-directory', '--verbose', '--', from, to,
+        ])
+        if (result.stdout === '') {
+          throw new FileManagerFilesystemError('already-exists', to, `path "${to}" already exists`)
+        }
         return { path: to }
       } catch (error: unknown) {
         throw mapNodeError(error, from)

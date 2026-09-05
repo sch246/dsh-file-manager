@@ -69,8 +69,8 @@ export class FileManagerRemote extends TypertRemoteService {
     request: FileManagerInitialLocationRequest,
     signal: AbortSignal,
   ): Promise<FileManagerResolvedPath> {
-    return await this.#guard(signal, async () => {
-      const cwd = await this.#cwdOf(request.sessionId, signal)
+    return await this.guard(signal, async () => {
+      const cwd = await this.cwdOf(request.sessionId, signal)
       return await this.filesystem.resolveExisting(cwd)
     })
   }
@@ -78,8 +78,8 @@ export class FileManagerRemote extends TypertRemoteService {
   /** Follow an existing absolute or Session-relative path to its canonical identity. */
   @Remote('resolve')
   async resolvePath(request: FileManagerPathRequest, signal: AbortSignal): Promise<FileManagerResolvedPath> {
-    return await this.#guard(signal, async () => {
-      const path = await this.#absolute(request, signal)
+    return await this.guard(signal, async () => {
+      const path = await this.absolute(request, signal)
       return await this.filesystem.resolveExisting(path)
     })
   }
@@ -87,8 +87,8 @@ export class FileManagerRemote extends TypertRemoteService {
   /** List one directory with optional hidden entries. */
   @Remote('list')
   async list(request: FileManagerListRequest, signal: AbortSignal): Promise<FileManagerDirectory> {
-    return await this.#guard(signal, async () => {
-      const path = await this.#absolute(request, signal)
+    return await this.guard(signal, async () => {
+      const path = await this.absolute(request, signal)
       return await this.filesystem.list(path, request.showHidden, signal)
     })
   }
@@ -96,8 +96,8 @@ export class FileManagerRemote extends TypertRemoteService {
   /** Read canonical LF text and its opaque guarded-write revision. */
   @Remote('readText')
   async readText(request: FileManagerPathRequest, signal: AbortSignal): Promise<FileManagerTextDocument> {
-    return await this.#guard(signal, async () => {
-      const path = await this.#absolute(request, signal)
+    return await this.guard(signal, async () => {
+      const path = await this.absolute(request, signal)
       return await this.filesystem.readText(path, signal)
     })
   }
@@ -105,8 +105,8 @@ export class FileManagerRemote extends TypertRemoteService {
   /** Re-read the exact bounded revision for polling. */
   @Remote('version')
   async version(request: FileManagerPathRequest, signal: AbortSignal): Promise<FileManagerVersionResult> {
-    return await this.#guard(signal, async () => {
-      const path = await this.#absolute(request, signal)
+    return await this.guard(signal, async () => {
+      const path = await this.absolute(request, signal)
       return await this.filesystem.version(path, signal)
     })
   }
@@ -114,8 +114,8 @@ export class FileManagerRemote extends TypertRemoteService {
   /** Publish text after staging and checking the loaded revision immediately before replacement. */
   @Remote('saveText')
   async saveText(request: FileManagerSaveRequest, signal: AbortSignal): Promise<FileManagerSaveResult> {
-    return await this.#guard(signal, async () => {
-      const path = await this.#absolute(request, signal)
+    return await this.guard(signal, async () => {
+      const path = await this.absolute(request, signal)
       return await this.filesystem.saveText(path, request.text, request.version, signal)
     })
   }
@@ -123,9 +123,9 @@ export class FileManagerRemote extends TypertRemoteService {
   /** Create one empty file or directory without replacing an existing child. */
   @Remote('create')
   async create(request: FileManagerCreateRequest, signal: AbortSignal): Promise<FileManagerCreateResult> {
-    return await this.#guard(signal, async () => {
+    return await this.guard(signal, async () => {
       signal.throwIfAborted()
-      const parent = await this.#absolute(request, signal)
+      const parent = await this.absolute(request, signal)
       return await this.filesystem.create(parent, request.name, request.kind)
     })
   }
@@ -133,11 +133,11 @@ export class FileManagerRemote extends TypertRemoteService {
   /** Move one entry after refusing a destination that already exists. */
   @Remote('move')
   async move(request: FileManagerMoveRequest, signal: AbortSignal): Promise<FileManagerMoveResult> {
-    return await this.#guard(signal, async () => {
+    return await this.guard(signal, async () => {
       signal.throwIfAborted()
       const [source, destination] = await Promise.all([
-        this.#absolute({ sessionId: request.sessionId, path: request.source }, signal),
-        this.#absolute({ sessionId: request.sessionId, path: request.destination }, signal),
+        this.absolute({ sessionId: request.sessionId, path: request.source }, signal),
+        this.absolute({ sessionId: request.sessionId, path: request.destination }, signal),
       ])
       return await this.filesystem.move(source, destination)
     })
@@ -146,20 +146,20 @@ export class FileManagerRemote extends TypertRemoteService {
   /** Move one entry to recoverable operating-system trash after exact-path confirmation. */
   @Remote('trash')
   async trash(request: FileManagerTrashRequest, signal: AbortSignal): Promise<FileManagerTrashResult> {
-    return await this.#guard(signal, async () => {
+    return await this.guard(signal, async () => {
       signal.throwIfAborted()
-      const path = await this.#absolute(request, signal)
+      const path = await this.absolute(request, signal)
       await this.filesystem.moveToTrash(path, request.confirmation)
       return { trashed: true }
     })
   }
 
-  async #absolute(request: FileManagerPathRequest, signal: AbortSignal): Promise<string> {
+  private async absolute(request: FileManagerPathRequest, signal: AbortSignal): Promise<string> {
     if (isAbsolute(request.path)) return resolveUserPath(request.path, process.cwd())
-    return resolveUserPath(request.path, await this.#cwdOf(request.sessionId, signal))
+    return resolveUserPath(request.path, await this.cwdOf(request.sessionId, signal))
   }
 
-  async #cwdOf(sessionId: SessionId, signal: AbortSignal): Promise<string> {
+  private async cwdOf(sessionId: SessionId, signal: AbortSignal): Promise<string> {
     signal.throwIfAborted()
     const live = this.ctx.sessions.get(sessionId)
     let header = live?.header
@@ -182,7 +182,7 @@ export class FileManagerRemote extends TypertRemoteService {
     return header.cwd ?? process.cwd()
   }
 
-  async #guard<T>(signal: AbortSignal, operation: () => Promise<T>): Promise<T> {
+  private async guard<T>(signal: AbortSignal, operation: () => Promise<T>): Promise<T> {
     try {
       signal.throwIfAborted()
       return await operation()

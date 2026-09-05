@@ -48,7 +48,6 @@ function loaded(document: FileManagerTextDocument): FileViewerLoadedText {
     version: document.version,
     title: segments.at(-1)?.label ?? document.path,
     location: {
-      label: document.path,
       segments,
       selectorId: 'file-manager',
     },

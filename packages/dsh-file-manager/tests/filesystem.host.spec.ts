@@ -26,7 +26,7 @@ beforeEach(async () => {
       trashed.push(destination)
     }
   }
-  filesystem = new FileManagerFilesystem(1024, trash)
+  filesystem = new FileManagerFilesystem(1024, trash, 'mv')
 })
 
 afterEach(async () => {
@@ -70,6 +70,22 @@ describe('FileManagerFilesystem', () => {
 
     await filesystem.move(join(root, 'first.txt'), join(root, 'renamed.txt'))
     expect(await readFile(join(root, 'renamed.txt'), 'utf8')).toBe('')
+    await filesystem.move(join(root, 'folder'), join(root, 'renamed-folder'))
+    expect((await filesystem.resolveExisting(join(root, 'renamed-folder'))).kind).toBe('directory')
+  })
+
+  it('competing managers preserve the losing source when moving to the same destination', async () => {
+    const other = new FileManagerFilesystem(1024, async () => {}, 'mv')
+    const left = join(root, 'left.txt')
+    const right = join(root, 'right.txt')
+    const target = join(root, 'contended.txt')
+    await writeFile(left, 'left')
+    await writeFile(right, 'right')
+    const results = await Promise.allSettled([filesystem.move(left, target), other.move(right, target)])
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    const winner = await readFile(target, 'utf8')
+    expect(['left', 'right']).toContain(winner)
+    expect(await readFile(winner === 'left' ? right : left, 'utf8')).toBe(winner === 'left' ? 'right' : 'left')
   })
 
   it('requires exact confirmation, rejects root, and trashes file plus empty and non-empty directories', async () => {
