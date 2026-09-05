@@ -3,9 +3,9 @@ export const NS = 'file-manager'
 
 /** Complete product-copy key set for the file tree. */
 export type FileManagerLocaleKey =
-  | 'title' | 'launcher' | 'address' | 'go' | 'refresh' | 'showHidden' | 'hideHidden'
+  | 'title' | 'launcher' | 'address' | 'go' | 'refresh' | 'showHidden'
   | 'newFile' | 'newFolder' | 'newFilePrompt' | 'newFolderPrompt' | 'renameMove'
-  | 'movePrompt' | 'trash' | 'permanentDelete' | 'permanentDeletePrompt' | 'clearError'
+  | 'movePrompt' | 'trash' | 'delete' | 'permanentDeletePrompt' | 'clearError'
   | 'loading' | 'empty' | 'expand' | 'collapse' | 'openDirectory' | 'openFile'
   | 'filter' | 'filterPlaceholder' | 'filterScope' | 'clearFilter' | 'noFilterResults'
   | 'refreshFailed'
@@ -24,7 +24,6 @@ export const en: Record<FileManagerLocaleKey, string> = {
   go: 'Go',
   refresh: 'Refresh',
   showHidden: 'Show hidden files',
-  hideHidden: 'Hide hidden files',
   newFile: 'New file',
   newFolder: 'New folder',
   newFilePrompt: 'Name of the new file',
@@ -32,7 +31,7 @@ export const en: Record<FileManagerLocaleKey, string> = {
   renameMove: 'Rename or move',
   movePrompt: 'Enter the complete destination path',
   trash: 'Move to trash',
-  permanentDelete: 'Delete permanently',
+  delete: 'Delete',
   permanentDeletePrompt: 'Permanently delete this item? This cannot be undone.',
   clearError: 'Dismiss error',
   loading: 'Loading files…',
@@ -56,7 +55,6 @@ export const zh: Record<FileManagerLocaleKey, string> = {
   go: '前往',
   refresh: '刷新',
   showHidden: '显示隐藏文件',
-  hideHidden: '隐藏隐藏文件',
   newFile: '新建文件',
   newFolder: '新建文件夹',
   newFilePrompt: '新文件名称',
@@ -64,7 +62,7 @@ export const zh: Record<FileManagerLocaleKey, string> = {
   renameMove: '重命名或移动',
   movePrompt: '请输入完整目标路径',
   trash: '移到回收站',
-  permanentDelete: '永久删除',
+  delete: '删除',
   permanentDeletePrompt: '要永久删除此项目吗？此操作无法撤销。',
   clearError: '关闭错误',
   loading: '正在加载文件…',

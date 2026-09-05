@@ -28,18 +28,19 @@ The Bundle requires the external right-sidebar and file-viewer Client packages i
 
 | Field | Bundle value | Meaning |
 |---|---:|---|
+| `maxResolveBatchSize` | `128` | Inclusive path count limit for metadata-only batch resolution. |
 | `maxTextReadBytes` | `1048576` | Inclusive complete UTF-8 read and encoded text-save limit. |
 | `maxByteReadBytes` | `16777216` | Inclusive complete binary read and byte-save limit. |
 | `resourcePollIntervalMs` | `2000` | Delay after each completed subscribed resource poll. |
 | `directoryPollIntervalMs` | `2000` | Delay after each completed loaded-directory refresh cycle. |
 | `openMode` | `preview-or-system` | Chat file-link behavior: `preview`, `system`, or `preview-or-system`. |
-| `deleteMode` | `trash` | Whether recoverable trash is available as the default action. |
+| `deleteMode` | `trash` | Initial deletion preference when the browser has no saved preference. |
 
 Profile and Home patch layers replace the row's complete `config`. Preserve every field when overriding one.
 
 ### What you get
 
-The Files launcher opens one Session-owned tree instance. Its editable address, hidden-entry toggle, lazy directories, automatic and manual refresh, loaded-tree filter, empty file/folder creation, move/rename, trash, and permanent-delete actions use Host process permissions. File rows select and persist their visible path while sending the canonical `filesystem` descriptor to the central resource opener; single click previews in a stable group right of the tree and double click requests a permanent tab. Resource location segments route back to the tree through `selectorId: 'file-manager'`.
+The Files launcher opens one Session-owned tree instance. Its editable address, hidden-entry toggle, lazy directories, automatic and manual refresh, loaded-tree filter, empty file/folder creation, move/rename, and Delete action use Host process permissions. The toolbar's Move to trash checkbox chooses the single row action's deletion mode and persists across trees and reloads independently of tree restoration. File rows select and persist their visible path while sending the canonical `filesystem` descriptor to the central resource opener; single click previews in a stable group right of the tree and double click requests a permanent tab. Resource location segments route back to the tree through `selectorId: 'file-manager'`.
 
 Automatic refresh polls only the current and expanded loaded directories, schedules after the prior cycle, and retains the mounted tree, reachable expansion, selection, and filter. A failed directory keeps its last successful listing and displays the failure. Filtering matches loaded names and relative paths in memory, retains ancestors, and never recursively reads unloaded directories.
 
@@ -59,7 +60,9 @@ The `fileManager` Typert namespace uses Node filesystem operations rather than a
 
 The `filesystem` source exposes metadata, exact bytes, and canonical LF text independently. Only text rejects NUL bytes or malformed UTF-8 and restores the loaded line-ending convention during save. Per-resource text and byte writes share one serialized staged publisher, compare content SHA-256 and stat fields immediately before rename, and then replace atomically. Permission bits are restored, but inode replacement does not promise ownership, access-control entry, extended-attribute, or other filesystem-specific metadata preservation. Source polling starts only for a resource subscription, schedules after the preceding read completes, and aborts on disposal.
 
-Trash requires no confirmation and never falls back to permanent deletion. The permanent row action asks once without typed-path confirmation. Host checks reject filesystem root, and permanent deletion unlinks a symbolic link instead of traversing its target.
+Trash requires no confirmation and never falls back to permanent deletion. With Move to trash unchecked, Delete asks once without typed-path confirmation. Host checks reject filesystem root, and permanent deletion unlinks a symbolic link instead of traversing its target.
+
+The metadata-only `resolveMany` Remote accepts `{ sessionId, paths }` and preserves each input path, order, and duplicate with either its resolved metadata or its own code/message error. It rejects requests above `maxResolveBatchSize` before filesystem work and rejects cancellation for the whole batch. Single-path `resolve` and batch resolution share the same implementation without reading file content.
 
 | Source | Responsibility |
 |---|---|

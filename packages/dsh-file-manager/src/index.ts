@@ -15,6 +15,8 @@ export const inject = ['sessions', 'sessionPersistence']
 
 /** Host deployment configuration. */
 export interface Config {
+  /** Inclusive maximum number of metadata paths in one resolveMany request. */
+  maxResolveBatchSize: number
   /** Inclusive complete text-read and encoded text-save limit. */
   maxTextReadBytes: number
   /** Inclusive complete byte-read and byte-save limit. */
@@ -25,7 +27,7 @@ export interface Config {
   directoryPollIntervalMs: number
   /** Chat workspace-file link routing policy. */
   openMode: 'preview' | 'system' | 'preview-or-system'
-  /** Whether recoverable trash is available; permanent deletion remains explicit. */
+  /** Initial browser deletion preference, used only when no preference is saved. */
   deleteMode: 'trash' | 'permanent'
   /** GNU mv executable; unsupported platforms fail without copying or deleting the source. */
   moveCommand: string
@@ -33,6 +35,7 @@ export interface Config {
 
 /** Validated deployment tunables. */
 export const Config: z<Config> = z.object({
+  maxResolveBatchSize: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(128),
   maxTextReadBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).required(),
   maxByteReadBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).required(),
   resourcePollIntervalMs: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).required(),

@@ -20,6 +20,7 @@ interface FileManagerPanelActions extends FileManagerPanelInjected {
   navigate(path: string): void
   refresh(): void
   setShowHidden(show: boolean): void
+  setDeleteMode(mode: FileManagerDeleteMode): void
   setFilter(filter: string): void
   toggleExpanded(path: string): void
   openFile(entry: FileManagerEntry, preview: boolean): void
@@ -71,11 +72,11 @@ function EntryRow({
     const destination = actions.prompt(actions.t('movePrompt'), entry.path)
     if (destination !== null && destination !== '' && destination !== entry.path) actions.move(entry.path, destination)
   }
-  const permanentlyRemove = (): void => {
+  const remove = (): void => {
     const confirmed = confirmFileManagerRemoval(
-      'permanent', entry.path, actions.confirm, actions.t('permanentDeletePrompt'),
+      instance.deleteMode, entry.path, actions.confirm, actions.t('permanentDeletePrompt'),
     )
-    if (confirmed) actions.remove(entry.path, 'permanent', true)
+    if (confirmed) actions.remove(entry.path, instance.deleteMode, instance.deleteMode === 'permanent')
   }
   return (
     <>
@@ -122,12 +123,7 @@ function EntryRow({
           <button type="button" className="dsh-file-manager-row-action" title={actions.t('renameMove')} aria-label={actions.t('renameMove')} onClick={move}>
             <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="m12 3 5 5-9 9H3v-5zM10 5l5 5" /></svg>
           </button>
-          {instance.deleteMode === 'trash' && (
-            <button type="button" className="dsh-file-manager-row-action is-danger" title={actions.t('trash')} aria-label={actions.t('trash')} onClick={() => { actions.remove(entry.path, 'trash', false) }}>
-              <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="M3 5h14M7 5V3h6v2M5 5l1 12h8l1-12M8 8v6M12 8v6" /></svg>
-            </button>
-          )}
-          <button type="button" className="dsh-file-manager-row-action is-danger" title={actions.t('permanentDelete')} aria-label={actions.t('permanentDelete')} onClick={permanentlyRemove}>
+          <button type="button" className="dsh-file-manager-row-action is-danger" title={actions.t('delete')} aria-label={actions.t('delete')} onClick={remove}>
             <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="M3 5h14M7 5V3h6v2M5 5l1 12h8l1-12M8 8v6M12 8v6" /></svg>
           </button>
         </span>
@@ -149,6 +145,7 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t }: Fi
     navigate: path => { void manager.navigate(instanceId, path) },
     refresh: () => { void manager.refresh(instanceId) },
     setShowHidden: show => { void manager.setShowHidden(instanceId, show) },
+    setDeleteMode: mode => { manager.setDeleteMode(mode) },
     setFilter: filter => { manager.setFilter(instanceId, filter) },
     toggleExpanded: path => { void manager.toggleExpanded(instanceId, path) },
     openFile: (entry, preview) => { void manager.openFile(instanceId, entry, preview) },
@@ -188,7 +185,15 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t }: Fi
             checked={snapshot.showHidden}
             onChange={event => { actions.setShowHidden(event.currentTarget.checked) }}
           />
-          {actions.t(snapshot.showHidden ? 'hideHidden' : 'showHidden')}
+          {actions.t('showHidden')}
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={snapshot.deleteMode === 'trash'}
+            onChange={event => { actions.setDeleteMode(event.currentTarget.checked ? 'trash' : 'permanent') }}
+          />
+          {actions.t('trash')}
         </label>
       </div>
       <div className="dsh-file-manager-filter">

@@ -2,6 +2,7 @@
     - id: dsh-file-manager
       name: '@dsh-external/dsh-file-manager'
       config:
+        maxResolveBatchSize: 128
         maxTextReadBytes: 1048576
         maxByteReadBytes: 16777216
         resourcePollIntervalMs: 2000

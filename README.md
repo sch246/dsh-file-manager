@@ -22,6 +22,7 @@ The Bundle inserts:
 - id: dsh-file-manager
   name: '@dsh-external/dsh-file-manager'
   config:
+    maxResolveBatchSize: 128
     maxTextReadBytes: 1048576
     maxByteReadBytes: 16777216
     resourcePollIntervalMs: 2000
@@ -31,9 +32,11 @@ The Bundle inserts:
     moveCommand: mv
 ```
 
-`maxTextReadBytes` and `maxByteReadBytes` are separate inclusive complete-read and save limits. `resourcePollIntervalMs` delays text and byte source checks while subscribed; `directoryPollIntervalMs` delays loaded-directory refresh cycles. Polls schedule only after the preceding cycle completes. `openMode` controls Chat file links. `deleteMode: trash` exposes recoverable trash as the default action; `permanent` disables trash when the deployment cannot provide it. Permanent deletion remains an explicit confirmed row action in either mode. Profile and Home patch layers replace a row's complete `config`, so preserve all fields when overriding one.
+`maxResolveBatchSize` caps metadata paths per request. `maxTextReadBytes` and `maxByteReadBytes` are separate inclusive complete-read and save limits. `resourcePollIntervalMs` delays text and byte source checks while subscribed; `directoryPollIntervalMs` delays loaded-directory refresh cycles. Polls schedule only after the preceding cycle completes. `openMode` controls Chat file links. `deleteMode` initializes the browser's Move to trash preference only when no valid saved preference exists. Profile and Home patch layers replace a row's complete `config`, so preserve all fields when overriding one.
 
 ## Resource reads and save guarantees
+
+`fileManager.resolveMany({ sessionId, paths })` resolves up to `maxResolveBatchSize` paths using the same metadata operation as `resolve`. It preserves input order and duplicates in `{ inputPath, ok: true, value }` or `{ inputPath, ok: false, error: { code, message } }` results. One missing or inaccessible path does not discard other results. Oversized batches and cancellation reject the whole request. Neither operation reads file content.
 
 Metadata and directory listings use stat information and filename MIME lookup without reading file content. Byte reads accept arbitrary regular-file bytes within `maxByteReadBytes` and cross the JSON Remote as canonical base64 before the Client recreates `Uint8Array`. Text reads separately require UTF-8 without NUL bytes and stay within `maxTextReadBytes`. CRLF and CR are canonicalized to LF for the editor. The opaque revision retains the original EOL convention for text, an exact pattern for mixed-EOL input, content SHA-256, canonical path, and stat fields; editor text represents terminal-newline presence. Text save restores EOLs from that revision. Byte save preserves exact bytes. Both publish through the same same-directory staged writer.
 
@@ -45,7 +48,7 @@ Staged saves restore permission bits. Replacing an inode can change ownership, a
 
 ## Removal safety
 
-When recoverable trash is configured, its row action sends files, links, empty directories, or non-empty directories to the operating system trash without confirmation. Failure is visible and never invokes permanent deletion. The separate permanent action asks once, names the target and irreversibility, and does not require typing the path. The Host rejects filesystem root and unlinks a symbolic link instead of recursively traversing its target.
+The toolbar's Move to trash checkbox sits beside Show hidden files. Each row has one Delete button: checked sends files, links, empty directories, or non-empty directories to operating-system trash without confirmation; unchecked asks once for permanent deletion, names the target and irreversibility, and does not require typing the path. Failure is visible and never invokes another deletion mode. The preference applies to every manager tree and persists across browser reloads independently of tree restoration; if browser storage is unavailable, it lasts for the current page. The Host rejects filesystem root and unlinks a symbolic link instead of recursively traversing its target.
 
 Confirmation addresses the named path, not a retained inode. An external process can replace a path between selection and the trash operation; inspect the operating-system trash when recovering it.
 

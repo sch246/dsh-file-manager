@@ -6,6 +6,8 @@ import {
   type FileManagerGateway, type FileManagerResourceOpener,
 } from '../src/client/service.ts'
 import { ResourceSourceId } from '@dsh-external/dsh-file-viewer/client'
+import type { FileManagerPreferenceStorage } from '../src/client/preferences.ts'
+import type { FileManagerDeleteMode } from '../src/types.ts'
 
 const sessionId = 'session-1' as SessionId
 const root = '/workspace'
@@ -25,7 +27,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-function harness() {
+function harness(storage?: FileManagerPreferenceStorage, initial: FileManagerDeleteMode = 'trash') {
   const gateway: FileManagerGateway = {
     initialLocation: vi.fn(async () => ({ path: root, name: 'workspace', kind: 'directory' as const })),
     resolve: vi.fn(async (_sessionId, path) => ({
@@ -49,13 +51,50 @@ function harness() {
   } as unknown as RightSidebarService
   const resources = { open: vi.fn(async () => 'resource-1') } satisfies FileManagerResourceOpener
   const service = new FileManagerService(
-    gateway, sidebar, resources, ResourceSourceId('filesystem'), () => 'Files', 50, 'trash',
+    gateway, sidebar, resources, ResourceSourceId('filesystem'), () => 'Files', 50, initial, storage,
   )
   services.push(service)
   return { gateway, sidebar, resources, service }
 }
 
 describe('FileManagerService', () => {
+  it('persists deletion preference across trees and reloads without restoring stale tree values', async () => {
+    const values = new Map<string, string>()
+    const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) } }
+    const first = harness(storage)
+    const one = await first.service.open(sessionId)
+    const two = await first.service.open('session-2' as SessionId)
+    expect(first.service.snapshot(one).deleteMode).toBe('trash')
+    first.service.setDeleteMode('permanent')
+    expect(first.service.snapshot(one).deleteMode).toBe('permanent')
+    expect(first.service.snapshot(two).deleteMode).toBe('permanent')
+    const second = harness(storage, 'trash')
+    await second.service.restore(sessionId, 'restored', {
+      version: 1, address: root, showHidden: false, filter: '', expanded: [], deleteMode: 'trash',
+    })
+    expect(second.service.snapshot('restored').deleteMode).toBe('permanent')
+    second.service.setDeleteMode('trash')
+    const third = harness(storage, 'permanent')
+    expect(third.service.snapshot(await third.service.open(sessionId)).deleteMode).toBe('trash')
+  })
+
+  it('keeps deletion usable when browser preference storage is blocked', async () => {
+    const storage = { getItem: () => { throw new Error('storage denied') }, setItem: () => { throw new Error('storage denied') } }
+    const { service } = harness(storage, 'permanent')
+    const id = await service.open(sessionId)
+    expect(service.snapshot(id).deleteMode).toBe('permanent')
+    service.setDeleteMode('trash')
+    expect(service.snapshot(id).deleteMode).toBe('trash')
+  })
+
+  it('retains trash failure without issuing permanent deletion', async () => {
+    const { service, gateway } = harness()
+    const id = await service.open(sessionId)
+    vi.mocked(gateway.deleteEntry).mockRejectedValueOnce(new Error('trash unavailable'))
+    await service.remove(id, file.path, 'trash', false)
+    expect(gateway.deleteEntry).toHaveBeenCalledExactlyOnceWith(sessionId, file.path, 'trash', false, expect.any(AbortSignal))
+    expect(service.snapshot(id).error).toBe('trash unavailable')
+  })
   it('validates selector input before any workbench side effect', async () => {
     expect(parseFileManagerSelection('/tmp')).toEqual({ path: '/tmp' })
     expect(parseFileManagerSelection({ path: '/tmp' })).toEqual({ path: '/tmp' })

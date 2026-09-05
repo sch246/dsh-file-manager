@@ -3,6 +3,7 @@ import type {
   ResourceDescriptor, ResourceOpenOptions, ResourceSourceId,
 } from '@dsh-external/dsh-file-viewer/client'
 import type { RightSidebarService } from '@dsh-external/dsh-right-sidebar/client'
+import { readDeleteMode, saveDeleteMode, type FileManagerPreferenceStorage } from './preferences.ts'
 import type {
   FileManagerDeleteMode, FileManagerDirectory, FileManagerEntry, FileManagerResolvedPath,
 } from '../types.ts'
@@ -198,11 +199,12 @@ export class FileManagerService {
   readonly #sourceId: ResourceSourceId
   readonly #title: () => string
   readonly #directoryPollIntervalMs: number
-  readonly #deleteMode: FileManagerDeleteMode
+  #deleteMode: FileManagerDeleteMode
+  readonly #preferenceStorage: FileManagerPreferenceStorage | undefined
   readonly #records = new Map<string, RecordState>()
   #disposed = false
 
-  /** @param gateway - Filesystem operations. @param sidebar - Workbench instance host. @param resources - Generic resource opener. @param sourceId - Filesystem source id. @param title - Localized tree title. @param directoryPollIntervalMs - Delay after each directory polling cycle. @param deleteMode - Configured recovery policy. */
+  /** @param gateway - Filesystem operations. @param sidebar - Workbench instance host. @param resources - Generic resource opener. @param sourceId - Filesystem source id. @param title - Localized tree title. @param directoryPollIntervalMs - Delay after each directory polling cycle. @param deleteMode - Initial deletion preference. @param preferenceStorage - Browser preference persistence, separate from tree restoration. */
   constructor(
     gateway: FileManagerGateway,
     sidebar: RightSidebarService,
@@ -211,6 +213,7 @@ export class FileManagerService {
     title: () => string,
     directoryPollIntervalMs: number,
     deleteMode: FileManagerDeleteMode,
+    preferenceStorage?: FileManagerPreferenceStorage,
   ) {
     this.#gateway = gateway
     this.#sidebar = sidebar
@@ -218,7 +221,8 @@ export class FileManagerService {
     this.#sourceId = sourceId
     this.#title = title
     this.#directoryPollIntervalMs = directoryPollIntervalMs
-    this.#deleteMode = deleteMode
+    this.#preferenceStorage = preferenceStorage
+    this.#deleteMode = preferenceStorage === undefined ? deleteMode : readDeleteMode(preferenceStorage, deleteMode)
   }
 
   /** Open or focus the Session tree and optionally select a path. */
@@ -354,6 +358,17 @@ export class FileManagerService {
     this.#notify(record)
   }
 
+  /** Change the browser-wide deletion preference for every current and future tree. */
+  setDeleteMode(mode: FileManagerDeleteMode): void {
+    this.#assertLive()
+    this.#deleteMode = mode
+    if (this.#preferenceStorage !== undefined) saveDeleteMode(this.#preferenceStorage, mode)
+    for (const record of this.#records.values()) {
+      record.snapshot = { ...record.snapshot, deleteMode: mode }
+      this.#notify(record)
+    }
+  }
+
   /** Expand a directory lazily, or collapse it and its loaded descendants. */
   async toggleExpanded(instanceId: string, path: string): Promise<void> {
     const record = this.#record(instanceId)
@@ -440,7 +455,7 @@ export class FileManagerService {
     await this.#mutate(record, signal => this.#gateway.move(record.snapshot.sessionId, source, destination, signal))
   }
 
-  /** Remove one path; the Host enforces the configured mode and permanent confirmation. */
+  /** Remove one path; the Host enforces root/link safeguards and permanent confirmation. */
   async remove(instanceId: string, path: string, mode: FileManagerDeleteMode, confirmed: boolean): Promise<void> {
     const record = this.#record(instanceId)
     await this.#mutate(record, signal => this.#gateway.deleteEntry(

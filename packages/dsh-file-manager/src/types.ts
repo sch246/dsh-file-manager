@@ -31,6 +31,7 @@ export interface FileManagerDirectory {
 
 /** Host-owned browser behavior and polling configuration. */
 export interface FileManagerMetadata {
+  readonly maxResolveBatchSize: number
   readonly maxTextReadBytes: number
   readonly maxByteReadBytes: number
   readonly resourcePollIntervalMs: number
@@ -44,6 +45,17 @@ export interface FileManagerPathRequest {
   readonly sessionId: SessionId
   readonly path: string
 }
+
+/** Metadata-only path batch, bounded by maxResolveBatchSize. */
+export interface FileManagerResolveManyRequest {
+  readonly sessionId: SessionId
+  readonly paths: readonly string[]
+}
+
+/** One result per input path, preserving order and duplicate inputs. */
+export type FileManagerResolveManyResult =
+  | { readonly inputPath: string; readonly ok: true; readonly value: FileManagerResolvedPath }
+  | { readonly inputPath: string; readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
 
 /** Request for a Session's initial directory. */
 export interface FileManagerInitialLocationRequest { readonly sessionId: SessionId }

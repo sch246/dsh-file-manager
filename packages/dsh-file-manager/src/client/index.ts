@@ -25,6 +25,7 @@ import {
   type FilesystemSourceGateway,
 } from './source.ts'
 import { FILE_MANAGER_CSS } from './styles.ts'
+import { browserPreferenceStorage } from './preferences.ts'
 import type { FileManagerResolvedPath } from '../types.ts'
 
 export type {
@@ -139,6 +140,7 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
     () => t('title'),
     metadata.directoryPollIntervalMs,
     metadata.deleteMode,
+    browserPreferenceStorage,
   )
 
   const unregisterSource = resources.registerSource(source)

@@ -2,7 +2,7 @@ import { isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
-import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, RemoteError, remoteErrorOf, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import {
   FileManagerFilesystem, FileManagerFilesystemError, resolveUserPath,
 } from './filesystem.ts'
@@ -13,10 +13,13 @@ import type {
   FileManagerMoveRequest, FileManagerMoveResult, FileManagerPathRequest,
   FileManagerResolvedPath, FileManagerSaveBytesRequest, FileManagerSaveRequest, FileManagerSaveResult,
   FileManagerTextDocument, FileManagerBytesDocument,
+  FileManagerResolveManyRequest, FileManagerResolveManyResult,
 } from './types.ts'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
+    /** The metadata batch exceeds the configured input count. */
+    'file-manager/batch-too-large': { readonly maxResolveBatchSize: number }
     /** The Session or addressed path does not exist. */
     'file-manager/not-found': { readonly path: string; readonly sessionId?: SessionId }
     /** The addressed path or child name is invalid. */
@@ -97,6 +100,37 @@ export class FileManagerRemote extends TypertRemoteService {
     })
   }
 
+  /**
+   * Resolve metadata only, preserving input order and individual path failures.
+   * @param request - Session and paths, capped by maxResolveBatchSize before resolution.
+   * @param signal - Cancellation rejects the entire batch, including completed results.
+   * @returns One metadata or error result per input, including duplicate paths.
+   */
+  @Remote('resolveMany')
+  async resolveMany(request: FileManagerResolveManyRequest, signal: AbortSignal): Promise<readonly FileManagerResolveManyResult[]> {
+    return await this.guard(signal, async () => {
+      if (request.paths.length > this.configMetadata.maxResolveBatchSize) {
+        throw new RemoteError('file-manager/batch-too-large', 'too many paths in metadata request', {
+          maxResolveBatchSize: this.configMetadata.maxResolveBatchSize,
+        })
+      }
+      const results: FileManagerResolveManyResult[] = []
+      for (const inputPath of request.paths) {
+        try {
+          const value = await this.resolvePath({ sessionId: request.sessionId, path: inputPath }, signal)
+          signal.throwIfAborted()
+          results.push({ inputPath, ok: true, value })
+        } catch (error: unknown) {
+          signal.throwIfAborted()
+          const failure = remoteErrorOf(error)
+          if (failure === undefined || failure.code === 'gateway/cancelled') throw error
+          results.push({ inputPath, ok: false, error: { code: failure.code, message: failure.message } })
+        }
+      }
+      return results
+    })
+  }
+
   /** List one directory with optional hidden entries. */
   @Remote('list')
   async list(request: FileManagerListRequest, signal: AbortSignal): Promise<FileManagerDirectory> {
@@ -166,15 +200,12 @@ export class FileManagerRemote extends TypertRemoteService {
     })
   }
 
-  /** Apply the configured recoverable or confirmed permanent removal behavior. */
+  /** Apply the requested recoverable or confirmed permanent removal behavior. */
   @Remote('deleteEntry')
   async deleteEntry(request: FileManagerDeleteEntryRequest, signal: AbortSignal): Promise<FileManagerDeleteEntryResult> {
     return await this.guard(signal, async () => {
       signal.throwIfAborted()
       const path = await this.absolute(request, signal)
-      if (request.mode === 'trash' && this.configMetadata.deleteMode !== 'trash') {
-        throw new FileManagerFilesystemError('unavailable', path, 'recoverable trash is not configured')
-      }
       await this.filesystem.remove(path, request.mode, request.confirmed)
       return { mode: request.mode }
     })
