@@ -1,6 +1,6 @@
 # File manager current intended state
 
-Status: resource-workbench candidate under `../logs/2026-09-05-resource-workbench-file-manager.md`. The previous source-defined version was locally installed as recorded in [the deployment log](../logs/2026-09-05-live-workbench.md); this candidate is not installed, activated, visually accepted, or represented by an accepted realization lock.
+Status: source-defined resource-workbench revision under `../logs/2026-09-05-resource-workbench-file-manager.md`, locally installed and activated as recorded in [the deployment log](../logs/2026-09-05-resource-workbench-deployment.md). It is not user-visually accepted or represented by an accepted realization lock.
 
 ## Intent
 

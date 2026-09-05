@@ -1,0 +1,9 @@
+# Resource-workbench file manager deployment
+
+The user authorized installation and Web restart after isolated verification. Manager `e7da9510f9e1c9ae8ce1f713e6dcfb7544142d95` passed 36 tests, typecheck, and its Host → Typert → Client build against the candidate Host. A private Home reproduced the live dependency and Bundle composition with the matching generic viewer and grouped sidebar.
+
+Private browser and RPC evidence covered directory polling, loaded-tree filtering with retained ancestors, right-of-tree resource opening, SVG viewing and source-location navigation, exact binary round-trip, stale-write rejection, NUL text rejection, one-confirm permanent deletion and confirmation-free recoverable trash. Only disposable fixture files were deleted. A 300-entry expansion took 309 ms and filtering took 91 ms in one local observation, not a general performance guarantee.
+
+The clean deployment checkout fast-forwarded to the reviewed source. `pnpm install --frozen-lockfile --ignore-scripts` installed its added MIME dependency without running lifecycle scripts. Its owned build ran against the unchanged live Host while Web was stopped; the browser bundle matches the private artifact. The same four-package profile transaction installed manager, viewer, editor and sidebar together, with all resolved links, lock entries and Bundle membership checked.
+
+The authorized restart completed with MainPID `1913261` and zero automatic restarts. A fresh live page loaded the manager once, listed the Host workspace, and opened its README in a separate right-hand group without page/console/request errors. No user file was edited, no agent filesystem policy was changed, and no Harness source was modified. Installation and observed behavior do not establish user visual acceptance or an accepted realization lock.
