@@ -1,0 +1,5 @@
+# Local Web activation
+
+Source revision `f2f06cae17bbd8bc28294e4c5f1cf9d032f7e4a4` is installed at `/root/dsh-file-manager`. Its Bundle was added atomically with the sibling sidebar, viewer and editor packages after a private-Home probe reproducing the real package set. Dependency, lockfile, resolved path, Bundle and composed row were checked; the manager Host SHA-256 `207e3950627560bafdb7ce96e71439ba32a474d8c889a25bbb431354a3d31c39` matches the private-tested artifact. The authorized Web restart succeeded and its Client entry occurs once.
+
+Private real-browser operations passed source breadcrumb selection, tree listing, file/folder creation, rename and recoverable trash, plus filesystem-backed viewer synchronization and draft recovery. The renamed test file was moved to OS trash, not permanently deleted. Real-Web verification read the existing test file through the tree and retained it across session switches without modifying it. The 20-test manager suite and Host/Typert/Client builds pass. Deployment-specific development links now target stable siblings; no candidate worktree is required by this checkout. User visual acceptance is not claimed.

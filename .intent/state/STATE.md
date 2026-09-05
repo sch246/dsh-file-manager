@@ -1,6 +1,6 @@
 # File manager current intended state
 
-Status: source-defined implementation under `../logs/2026-09-05-user-filesystem-manager.md`; no accepted realization lock or installation claim.
+Status: source-defined implementation under `../logs/2026-09-05-user-filesystem-manager.md`, locally installed as recorded in [the deployment log](../logs/2026-09-05-live-workbench.md). No accepted realization lock or user visual acceptance is claimed.
 
 ## Intent
 
