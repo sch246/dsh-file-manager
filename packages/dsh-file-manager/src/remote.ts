@@ -6,6 +6,7 @@ import { Remote, RemoteError, remoteErrorOf, TypertRemoteService } from '@deepse
 import {
   FileManagerFilesystem, FileManagerFilesystemError, resolveUserPath,
 } from './filesystem.ts'
+import { homeTrashDirectory } from './trash.ts'
 import type {
   FileManagerCreateRequest, FileManagerCreateResult, FileManagerDirectory,
   FileManagerDeleteEntryRequest, FileManagerDeleteEntryResult,
@@ -46,6 +47,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'file-manager/root-delete': { readonly path: string }
     /** Permanent deletion did not carry browser confirmation. */
     'file-manager/confirmation-required': { readonly path: string }
+    /** The trash provider has no supported browser directory on this platform. */
+    'file-manager/trash-unsupported': { readonly path: string }
     /** The operating system could not complete the filesystem operation. */
     'file-manager/unavailable': { readonly path: string }
   }
@@ -77,6 +80,33 @@ export class FileManagerRemote extends TypertRemoteService {
   @Remote('metadata')
   metadata(): FileManagerMetadata {
     return this.configMetadata
+  }
+
+  /**
+   * Locate the Linux provider's home trash files directory without creating it.
+   * @param request - Session making the authenticated user request.
+   * @param signal - Request cancellation.
+   * @returns Existing canonical directory; rejects unsupported platforms or an absent/inaccessible directory.
+   */
+  @Remote('trashLocation')
+  async trashLocation(request: FileManagerInitialLocationRequest, signal: AbortSignal): Promise<FileManagerResolvedPath> {
+    return await this.guard(signal, async () => {
+      await this.cwdOf(request.sessionId, signal)
+      const path = await homeTrashDirectory()
+      signal.throwIfAborted()
+      let resolved: FileManagerResolvedPath
+      try {
+        resolved = await this.filesystem.resolveExisting(path)
+      } catch (error: unknown) {
+        if (error instanceof FileManagerFilesystemError && error.code === 'not-found') {
+          throw new FileManagerFilesystemError('not-found', path, 'The home trash directory has not been created; there is no directory to browse.', { cause: error })
+        }
+        throw error
+      }
+      signal.throwIfAborted()
+      if (resolved.kind !== 'directory') throw new FileManagerFilesystemError('not-directory', path, 'The home trash files path is not a directory.')
+      return resolved
+    })
   }
 
   /** Resolve the Session cwd used only as the first tree location. */

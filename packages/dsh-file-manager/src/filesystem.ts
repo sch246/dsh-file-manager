@@ -25,6 +25,7 @@ export type FileManagerFilesystemErrorCode =
   | 'stale-version'
   | 'root-delete'
   | 'confirmation-required'
+  | 'trash-unsupported'
   | 'unavailable'
 
 /** Filesystem failure with a stable category and addressed path. */

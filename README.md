@@ -6,9 +6,10 @@
 
 - The Files launcher opens a Session-owned `file-manager-tree` instance in `@dsh-external/dsh-right-sidebar`.
 - Session cwd is the initial directory only. The editable address accepts absolute paths anywhere the Host service process can access.
+- The path input stays visible; Enter navigates. New file, New folder, Refresh, and More appear over the first list row on hover or keyboard focus. Touch devices show More as the expansion target with the other actions inside it. Narrow panes progressively move Refresh, New folder, and New file into More.
 - Directories load lazily. Non-overlapping polling refreshes the current and expanded loaded directories while retaining expansion, selection, filter, and the mounted scroll container; failed listings remain visible with an error.
-- Browser reload restores the tree's current root, expanded directories, selection, hidden-entry mode, and filter. Cleanup runs only after the sidebar authoritatively removes the instance.
-- The loaded-tree filter matches names and relative paths, keeps matching ancestors, and never scans unloaded directories as the user types.
+- More contains browser-persisted Show hidden files, Move to trash when deleting, and Filter switches. Filter reveals an input only while enabled; disabling it stops filtering and retains each tree's query. The loaded-tree filter matches names and relative paths, keeps matching ancestors, and never scans unloaded directories as the user types.
+- Browser reload restores each tree's current root, expanded directories, selection, and filter query. The v2 descriptor excludes browser preferences; v1 navigation remains readable without restoring its hidden-entry value. Cleanup runs only after the sidebar authoritatively removes the instance.
 - Directory selections from resource locations launch or activate the tree. A file click selects the visible row while opening its canonical resource; single click requests a preview to the right of the tree, and double click requests a permanent tab through `ctx.resourceWorkbench.open()`.
 - The independent `@dsh-external/dsh-resource-links` plugin owns Chat path presentation and preview/system routing using this manager's metadata and Files launcher.
 
@@ -47,7 +48,9 @@ Staged saves restore permission bits. Replacing an inode can change ownership, a
 
 ## Removal safety
 
-The toolbar's Move to trash checkbox sits beside Show hidden files. Each row has one Delete button: checked sends files, links, empty directories, or non-empty directories to operating-system trash without confirmation; unchecked asks once for permanent deletion, names the target and irreversibility, and does not require typing the path. Failure is visible and never invokes another deletion mode. The preference applies to every manager tree and persists across browser reloads independently of tree restoration; if browser storage is unavailable, it lasts for the current page. The Host rejects filesystem root and unlinks a symbolic link instead of recursively traversing its target.
+The More menu's Move to trash when deleting switch governs each row's single Delete button: checked sends files, links, empty directories, or non-empty directories to operating-system trash without confirmation; unchecked asks once for permanent deletion, names the target and irreversibility, and does not require typing the path. Failure is visible and never invokes another deletion mode. Trash receives literal paths with glob expansion disabled. The preference applies to every manager tree and persists across browser reloads independently of tree restoration; if browser storage is unavailable, it lasts for the current page. The Host rejects filesystem root and unlinks a symbolic link instead of recursively traversing its target.
+
+Open trash in More navigates to the Linux provider's home trash `files` directory, using the same `xdg-trashdir` resolver as the installed `trash` library. The Host does not create a missing directory for browsing. WSL and other operating systems report unsupported browsing; missing or inaccessible directories report an error while retaining the current tree. Stored filenames may be generated IDs. This is ordinary directory browsing, without original-name reconstruction, other-volume aggregation, or restoration; the tree displays that scope after opening trash.
 
 Confirmation addresses the named path, not a retained inode. An external process can replace a path between selection and the trash operation; inspect the operating-system trash when recovering it.
 

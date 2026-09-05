@@ -45,6 +45,9 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
     initialLocation: async (sessionId, signal) => valueOf(
       await ctx.remote.fileManager.initialLocation({ sessionId }, signal),
     ),
+    trashLocation: async (sessionId, signal) => valueOf(
+      await ctx.remote.fileManager.trashLocation({ sessionId }, signal),
+    ),
     resolve: async (sessionId, path, signal) => valueOf(
       await ctx.remote.fileManager.resolve({ sessionId, path }, signal),
     ),

@@ -3,7 +3,7 @@ import type {
   ResourceDescriptor, ResourceOpenOptions, ResourceSourceId,
 } from '@dsh-external/dsh-file-viewer/client'
 import type { RightSidebarService } from '@dsh-external/dsh-right-sidebar/client'
-import { readDeleteMode, saveDeleteMode, type FileManagerPreferenceStorage } from './preferences.ts'
+import { readDeleteMode, saveDeleteMode, readManagerSwitch, saveManagerSwitch, type FileManagerPreferenceStorage } from './preferences.ts'
 import type {
   FileManagerDeleteMode, FileManagerDirectory, FileManagerEntry, FileManagerResolvedPath,
 } from '../types.ts'
@@ -11,6 +11,7 @@ import type {
 /** Plain Client adapter over generated Remote operations. */
 export interface FileManagerGateway {
   initialLocation(sessionId: SessionId, signal: AbortSignal): Promise<FileManagerResolvedPath>
+  trashLocation(sessionId: SessionId, signal: AbortSignal): Promise<FileManagerResolvedPath>
   resolve(sessionId: SessionId, path: string, signal: AbortSignal): Promise<FileManagerResolvedPath>
   list(sessionId: SessionId, path: string, showHidden: boolean, signal: AbortSignal): Promise<FileManagerDirectory>
   create(sessionId: SessionId, parent: string, name: string, kind: 'file' | 'directory', signal: AbortSignal): Promise<void>
@@ -31,11 +32,13 @@ export interface FileManagerSnapshot {
   readonly address: string
   readonly showHidden: boolean
   readonly filter: string
+  readonly filterEnabled: boolean
   readonly deleteMode: FileManagerDeleteMode
   readonly directory?: FileManagerDirectory
   readonly expanded: Readonly<Record<string, FileManagerDirectory>>
   readonly refreshErrors: Readonly<Record<string, string>>
   readonly selectedPath?: string
+  readonly trashDirectory?: string
   readonly error?: string
 }
 
@@ -55,9 +58,8 @@ export interface FileManagerSelection { readonly path: string }
 
 /** JSON-safe tree state persisted by the sidebar workbench. */
 export interface FileManagerRestoreDescriptor {
-  readonly version: 1
+  readonly version: 2
   readonly address: string
-  readonly showHidden: boolean
   readonly filter: string
   readonly expanded: readonly string[]
   readonly selectedPath?: string
@@ -75,22 +77,21 @@ export function parseFileManagerSelection(value: unknown): FileManagerSelection 
   throw new Error('file-manager: selection must be a non-empty path or { path }')
 }
 
-/** Validate persisted tree state before filesystem restoration. */
+/** Decode v1 or v2 navigation state; legacy visibility cannot replace browser preferences. */
 export function parseFileManagerRestoreDescriptor(value: unknown): FileManagerRestoreDescriptor {
   if (typeof value !== 'object' || value === null) {
     throw new Error('file-manager: restore descriptor must be an object')
   }
-  const candidate = value as Partial<FileManagerRestoreDescriptor>
-  if (candidate.version !== 1 || typeof candidate.address !== 'string'
-    || typeof candidate.showHidden !== 'boolean' || typeof candidate.filter !== 'string'
+  const candidate = value as Partial<Omit<FileManagerRestoreDescriptor, 'version'>> & { version?: unknown }
+  if ((candidate.version !== 1 && candidate.version !== 2) || typeof candidate.address !== 'string'
+    || typeof candidate.filter !== 'string'
     || !Array.isArray(candidate.expanded) || !candidate.expanded.every(path => typeof path === 'string' && path !== '')
     || (candidate.selectedPath !== undefined && (typeof candidate.selectedPath !== 'string' || candidate.selectedPath === ''))) {
     throw new Error('file-manager: restore descriptor is invalid')
   }
   return {
-    version: 1,
+    version: 2,
     address: candidate.address,
-    showHidden: candidate.showHidden,
     filter: candidate.filter,
     expanded: [...new Set(candidate.expanded)],
     ...(candidate.selectedPath === undefined ? {} : { selectedPath: candidate.selectedPath }),
@@ -128,10 +129,10 @@ function relativeForMatch(root: string, path: string): string {
     : normalizedPath
 }
 
-/** Return visible loaded-tree rows for a name or relative-path query, including ancestors. */
+/** Return matching loaded rows and ancestors, or undefined when filtering is disabled or empty. */
 export function filterLoadedTree(snapshot: FileManagerSnapshot): ReadonlySet<string> | undefined {
   const query = snapshot.filter.trim().toLocaleLowerCase()
-  if (query === '' || snapshot.directory === undefined) return undefined
+  if (!snapshot.filterEnabled || query === '' || snapshot.directory === undefined) return undefined
   const visible = new Set<string>()
   const visited = new Set<string>()
   const visit = (directory: FileManagerDirectory): boolean => {
@@ -200,6 +201,8 @@ export class FileManagerService {
   readonly #title: () => string
   readonly #directoryPollIntervalMs: number
   #deleteMode: FileManagerDeleteMode
+  #showHidden: boolean
+  #filterEnabled: boolean
   readonly #preferenceStorage: FileManagerPreferenceStorage | undefined
   readonly #records = new Map<string, RecordState>()
   #disposed = false
@@ -223,6 +226,8 @@ export class FileManagerService {
     this.#directoryPollIntervalMs = directoryPollIntervalMs
     this.#preferenceStorage = preferenceStorage
     this.#deleteMode = preferenceStorage === undefined ? deleteMode : readDeleteMode(preferenceStorage, deleteMode)
+    this.#showHidden = readManagerSwitch(preferenceStorage, 'show-hidden')
+    this.#filterEnabled = readManagerSwitch(preferenceStorage, 'filter-enabled')
   }
 
   /** Open or focus the Session tree and optionally select a path. */
@@ -238,8 +243,9 @@ export class FileManagerService {
           sessionId,
           status: 'loading',
           address: selection?.path ?? '',
-          showHidden: false,
+          showHidden: this.#showHidden,
           filter: '',
+          filterEnabled: this.#filterEnabled,
           deleteMode: this.#deleteMode,
           expanded: Object.freeze({}),
           refreshErrors: Object.freeze({}),
@@ -282,8 +288,9 @@ export class FileManagerService {
         sessionId,
         status: 'loading',
         address: descriptor.address,
-        showHidden: descriptor.showHidden,
+        showHidden: this.#showHidden,
         filter: descriptor.filter,
+        filterEnabled: this.#filterEnabled,
         deleteMode: this.#deleteMode,
         expanded: Object.freeze({}),
         refreshErrors: Object.freeze({}),
@@ -339,14 +346,44 @@ export class FileManagerService {
     this.#finish(record, operation)
   }
 
-  /** Show or hide dot-prefixed entries while retaining reachable expanded directories. */
+  /** Persist hidden-entry visibility for every tree and refresh their reachable loaded directories. */
   async setShowHidden(instanceId: string, showHidden: boolean): Promise<void> {
+    this.#record(instanceId)
+    if (this.#showHidden === showHidden) return
+    this.#showHidden = showHidden
+    saveManagerSwitch(this.#preferenceStorage, 'show-hidden', showHidden)
+    await Promise.all([...this.#records.values()].map(async record => {
+      record.snapshot = { ...record.snapshot, showHidden }
+      this.#notify(record)
+      if (this.#records.get(record.snapshot.instanceId) !== record) return
+      if (record.snapshot.status === 'loading') await this.#navigate(record, record.snapshot.address || undefined)
+      else await this.refresh(record.snapshot.instanceId)
+    }))
+  }
+
+  /** Persist filter visibility for every tree while retaining each tree's query and selection. @param enabled - Whether queries filter loaded rows. */
+  setFilterEnabled(enabled: boolean): void {
+    this.#assertLive()
+    this.#filterEnabled = enabled
+    saveManagerSwitch(this.#preferenceStorage, 'filter-enabled', enabled)
+    for (const record of this.#records.values()) {
+      record.snapshot = { ...record.snapshot, filterEnabled: enabled }
+      this.#notify(record)
+    }
+  }
+
+  /** Navigate to the provider's actual trash directory, retaining the current tree on lookup failure. @param instanceId - Tree receiving navigation and visible lookup errors. @returns Completion of lookup and navigation. */
+  async openTrash(instanceId: string): Promise<void> {
     const record = this.#record(instanceId)
-    if (record.snapshot.showHidden === showHidden) return
-    record.snapshot = { ...record.snapshot, showHidden }
-    this.#checkpoint(record)
-    this.#notify(record)
-    await this.refresh(instanceId)
+    const operation = this.#begin(record)
+    try {
+      const location = await this.#gateway.trashLocation(record.snapshot.sessionId, operation.signal)
+      if (!this.#current(record, operation)) return
+      record.snapshot = { ...record.snapshot, trashDirectory: location.path }
+      await this.#navigate(record, location.path)
+    } catch (error: unknown) {
+      this.#fail(record, operation, error)
+    }
   }
 
   /** Apply an in-memory filter over names and relative paths in the loaded tree. */
@@ -651,9 +688,8 @@ export class FileManagerService {
 
   #descriptor(snapshot: FileManagerSnapshot): FileManagerRestoreDescriptor {
     return {
-      version: 1,
+      version: 2,
       address: snapshot.address,
-      showHidden: snapshot.showHidden,
       filter: snapshot.filter,
       expanded: Object.keys(snapshot.expanded),
       ...(snapshot.selectedPath === undefined ? {} : { selectedPath: snapshot.selectedPath }),

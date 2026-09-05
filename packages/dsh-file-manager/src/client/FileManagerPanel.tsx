@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore, type FormEvent } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from 'react'
 import type { FileManagerDeleteMode, FileManagerDirectory, FileManagerEntry } from '../types.ts'
 import type { FileManagerLocaleKey } from './locales.ts'
 import { filterLoadedTree, type FileManagerService, type FileManagerSnapshot } from './service.ts'
@@ -22,6 +22,8 @@ interface FileManagerPanelActions extends FileManagerPanelInjected {
   setShowHidden(show: boolean): void
   setDeleteMode(mode: FileManagerDeleteMode): void
   setFilter(filter: string): void
+  setFilterEnabled(enabled: boolean): void
+  openTrash(): void
   toggleExpanded(path: string): void
   openFile(entry: FileManagerEntry, preview: boolean): void
   create(name: string, kind: 'file' | 'directory'): void
@@ -133,7 +135,72 @@ function EntryRow({
   )
 }
 
-/** Render one editable-address tree with lazy folders and explicit mutation actions. */
+function DirectoryActions({ actions, snapshot, create }: {
+  readonly actions: FileManagerPanelActions
+  readonly snapshot: FileManagerSnapshot
+  readonly create: (kind: 'file' | 'directory') => void
+}) {
+  const [open, setOpen] = useState(false)
+  const container = useRef<HTMLDivElement>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const menu = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const dismiss = (event: PointerEvent): void => {
+      if (!container.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', dismiss)
+    const first = [...menu.current!.querySelectorAll<HTMLButtonElement>('button')]
+      .find(item => getComputedStyle(item).display !== 'none')
+    first?.focus()
+    return () => { document.removeEventListener('pointerdown', dismiss) }
+  }, [open])
+  const moveFocus = (event: KeyboardEvent): void => {
+    const items = [...menu.current!.querySelectorAll<HTMLButtonElement>('button')]
+      .filter(item => getComputedStyle(item).display !== 'none')
+    const index = items.indexOf(document.activeElement as HTMLButtonElement)
+    if (event.key === 'Escape') { setOpen(false); trigger.current?.focus() }
+    else if (event.key === 'ArrowDown') items[(index + 1) % items.length]?.focus()
+    else if (event.key === 'ArrowUp') items[(index - 1 + items.length) % items.length]?.focus()
+    else if (event.key === 'Home') items[0]?.focus()
+    else if (event.key === 'End') items.at(-1)?.focus()
+    else return
+    event.preventDefault()
+  }
+  const entries = [
+    { key: 'newFile' as const, slot: 'file', run: () => create('file'), path: 'M5 2.5h6l4 4v11H5zM11 2.5v4h4M7 12h6M10 9v6' },
+    { key: 'newFolder' as const, slot: 'folder', run: () => create('directory'), path: 'M2.5 5.5h6l2 2h7v10h-15zM7 12h6M10 9v6' },
+    { key: 'refresh' as const, slot: 'refresh', run: actions.refresh, path: 'M16 7a6.5 6.5 0 1 0 .5 5M16 2v5h-5' },
+  ]
+  return <div ref={container} className="dsh-file-manager-directory-actions" data-open={open || undefined}
+    onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false) }}>
+    {entries.map(entry => <button key={entry.key} type="button" className={`dsh-file-manager-quick-${entry.slot}`}
+      title={actions.t(entry.key)} aria-label={actions.t(entry.key)} onClick={entry.run}>
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d={entry.path} /></svg>
+    </button>)}
+    <button ref={trigger} type="button" title={actions.t('more')} aria-label={actions.t('more')} aria-haspopup="menu" aria-expanded={open}
+      onClick={() => { setOpen(!open) }}
+      onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); setOpen(true) } }}>
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden><circle cx="4" cy="10" r="1.5" /><circle cx="10" cy="10" r="1.5" /><circle cx="16" cy="10" r="1.5" /></svg>
+    </button>
+    {open && <div ref={menu} role="menu" aria-label={actions.t('more')} className="dsh-file-manager-menu" onKeyDown={moveFocus}>
+      {entries.map(entry => <button key={entry.key} type="button" role="menuitem" className={`dsh-file-manager-overflow-${entry.slot}`}
+        onClick={() => { setOpen(false); entry.run() }}>{actions.t(entry.key)}</button>)}
+      <button type="button" role="menuitemcheckbox" aria-checked={snapshot.showHidden} onClick={() => { actions.setShowHidden(!snapshot.showHidden) }}>
+        <span aria-hidden>{snapshot.showHidden ? '✓' : ''}</span>{actions.t('showHidden')}
+      </button>
+      <button type="button" role="menuitemcheckbox" aria-checked={snapshot.deleteMode === 'trash'} onClick={() => { actions.setDeleteMode(snapshot.deleteMode === 'trash' ? 'permanent' : 'trash') }}>
+        <span aria-hidden>{snapshot.deleteMode === 'trash' ? '✓' : ''}</span>{actions.t('trash')}
+      </button>
+      <button type="button" role="menuitemcheckbox" aria-checked={snapshot.filterEnabled} onClick={() => { actions.setFilterEnabled(!snapshot.filterEnabled) }}>
+        <span aria-hidden>{snapshot.filterEnabled ? '✓' : ''}</span>{actions.t('filter')}
+      </button>
+      <button type="button" role="menuitem" title={actions.t('trashScope')} onClick={() => { setOpen(false); actions.openTrash() }}>{actions.t('openTrash')}</button>
+    </div>}
+  </div>
+}
+
+/** Render an Enter-navigable path and tree with first-row actions and optional filtering. */
 export function FileManagerPanel({ manager, instanceId, prompt, confirm, t }: FileManagerPanelProps) {
   const actions: FileManagerPanelActions = {
     manager,
@@ -147,6 +214,8 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t }: Fi
     setShowHidden: show => { void manager.setShowHidden(instanceId, show) },
     setDeleteMode: mode => { manager.setDeleteMode(mode) },
     setFilter: filter => { manager.setFilter(instanceId, filter) },
+    setFilterEnabled: enabled => { manager.setFilterEnabled(enabled) },
+    openTrash: () => { void manager.openTrash(instanceId) },
     toggleExpanded: path => { void manager.toggleExpanded(instanceId, path) },
     openFile: (entry, preview) => { void manager.openFile(instanceId, entry, preview) },
     create: (name, kind) => { void manager.create(instanceId, name, kind) },
@@ -169,34 +238,9 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t }: Fi
   return (
     <section className="dsh-file-manager-root">
       <form className="dsh-file-manager-address" onSubmit={submit}>
-        <label>
-          <span>{actions.t('address')}</span>
-          <input value={address} onChange={event => { setAddress(event.currentTarget.value) }} spellCheck={false} />
-        </label>
-        <button type="submit">{actions.t('go')}</button>
+        <input aria-label={actions.t('address')} value={address} onChange={event => { setAddress(event.currentTarget.value) }} spellCheck={false} />
       </form>
-      <div className="dsh-file-manager-toolbar">
-        <button type="button" onClick={actions.refresh}>{actions.t('refresh')}</button>
-        <button type="button" onClick={() => { create('file') }}>{actions.t('newFile')}</button>
-        <button type="button" onClick={() => { create('directory') }}>{actions.t('newFolder')}</button>
-        <label>
-          <input
-            type="checkbox"
-            checked={snapshot.showHidden}
-            onChange={event => { actions.setShowHidden(event.currentTarget.checked) }}
-          />
-          {actions.t('showHidden')}
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={snapshot.deleteMode === 'trash'}
-            onChange={event => { actions.setDeleteMode(event.currentTarget.checked ? 'trash' : 'permanent') }}
-          />
-          {actions.t('trash')}
-        </label>
-      </div>
-      <div className="dsh-file-manager-filter">
+      {snapshot.filterEnabled && <div className="dsh-file-manager-filter">
         <label>
           <span>{actions.t('filter')}</span>
           <input
@@ -208,7 +252,7 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t }: Fi
         </label>
         {snapshot.filter !== '' && <button type="button" onClick={() => { actions.setFilter('') }}>{actions.t('clearFilter')}</button>}
         <span className="dsh-file-manager-filter-scope">{actions.t('filterScope')}</span>
-      </div>
+      </div>}
       {snapshot.error !== undefined && (
         <div className="dsh-file-manager-error" role="alert">
           <span>{snapshot.error}</span>
@@ -221,24 +265,26 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t }: Fi
         </div>
       ))}
       {snapshot.status === 'loading' && <div className="dsh-file-manager-state" role="status">{actions.t('loading')}</div>}
-      {snapshot.directory !== undefined && snapshot.directory.entries.length === 0 && (
-        <div className="dsh-file-manager-state">{actions.t('empty')}</div>
-      )}
-      {snapshot.directory !== undefined && snapshot.filter !== '' && visiblePaths?.size === 0 && (
-        <div className="dsh-file-manager-state">{actions.t('noFilterResults')}</div>
-      )}
+      {snapshot.directory !== undefined && snapshot.directory.path === snapshot.trashDirectory && <div className="dsh-file-manager-trash-scope" role="note">{actions.t('trashScope')}</div>}
       {snapshot.directory !== undefined && (
-        <div className="dsh-file-manager-tree" role="tree">
-          {snapshot.directory.parent !== undefined && (
-            <button
-              type="button"
-              className="dsh-file-manager-parent"
-              onClick={() => { actions.navigate(snapshot.directory?.parent ?? snapshot.address) }}
-            >
-              ..
-            </button>
-          )}
-          <EntryRows instance={snapshot} directory={snapshot.directory} depth={0} actions={actions} visiblePaths={visiblePaths} />
+        <div className="dsh-file-manager-tree-area">
+          <div className="dsh-file-manager-tree" role="tree">
+            <div className="dsh-file-manager-tree-content">
+              <DirectoryActions actions={actions} snapshot={snapshot} create={create} />
+              {snapshot.directory.parent !== undefined && (
+                <button
+                  type="button"
+                  className="dsh-file-manager-parent"
+                  onClick={() => { actions.navigate(snapshot.directory?.parent ?? snapshot.address) }}
+                >
+                  ..
+                </button>
+              )}
+              <EntryRows instance={snapshot} directory={snapshot.directory} depth={0} actions={actions} visiblePaths={visiblePaths} />
+              {snapshot.directory.entries.length === 0 && <div className="dsh-file-manager-state">{actions.t('empty')}</div>}
+              {snapshot.filterEnabled && snapshot.filter !== '' && visiblePaths?.size === 0 && <div className="dsh-file-manager-state">{actions.t('noFilterResults')}</div>}
+            </div>
+          </div>
         </div>
       )}
     </section>

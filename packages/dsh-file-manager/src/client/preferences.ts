@@ -8,6 +8,22 @@ export interface FileManagerPreferenceStorage {
 
 const deleteModeKey = 'dsh:file-manager:delete-mode:v1'
 
+/** Browser-wide switches independent of navigation restoration. */
+export type FileManagerSwitch = 'show-hidden' | 'filter-enabled'
+
+/** Read a switch, defaulting to disabled when storage is absent or inaccessible. @param storage - Browser-owned persistence. @param key - Manager switch. @returns Saved enabled state or false. */
+export function readManagerSwitch(storage: FileManagerPreferenceStorage | undefined, key: FileManagerSwitch): boolean {
+  try { return storage?.getItem(`dsh:file-manager:${key}:v1`) === 'true' } catch {
+    // Denied browser storage keeps the page-local default.
+    return false
+  }
+}
+
+/** Persist a switch without losing its page-local value when storage is denied. @param storage - Browser-owned persistence. @param key - Manager switch. @param enabled - New switch value. */
+export function saveManagerSwitch(storage: FileManagerPreferenceStorage | undefined, key: FileManagerSwitch, enabled: boolean): void {
+  try { storage?.setItem(`dsh:file-manager:${key}:v1`, String(enabled)) } catch { /* Denied or full storage leaves the page-local preference active. */ }
+}
+
 /** Read the saved deletion preference; inaccessible storage keeps the Host initial value. */
 export function readDeleteMode(storage: FileManagerPreferenceStorage, initial: FileManagerDeleteMode): FileManagerDeleteMode {
   let saved: string | null

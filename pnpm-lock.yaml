@@ -86,6 +86,12 @@ importers:
       trash:
         specifier: ^10.0.0
         version: 10.1.1
+      wsl-utils:
+        specifier: ^0.4.0
+        version: 0.4.0
+      xdg-trashdir:
+        specifier: ^3.1.0
+        version: 3.1.0
       zod:
         specifier: ^4.4.3
         version: 4.5.4

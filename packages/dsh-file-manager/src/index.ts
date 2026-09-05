@@ -47,7 +47,7 @@ export function apply(ctx: Context, config: Config): void {
   const filesystem = new FileManagerFilesystem(
     config.maxTextReadBytes,
     config.maxByteReadBytes,
-    async paths => { await trash([...paths]) },
+    async paths => { await trash([...paths], { glob: false }) },
     config.moveCommand,
   )
   new FileManagerRemote(ctx, filesystem, config)

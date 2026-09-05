@@ -30,6 +30,7 @@ afterEach(() => {
 function harness(storage?: FileManagerPreferenceStorage, initial: FileManagerDeleteMode = 'trash') {
   const gateway: FileManagerGateway = {
     initialLocation: vi.fn(async () => ({ path: root, name: 'workspace', kind: 'directory' as const })),
+    trashLocation: vi.fn(async () => ({ path: '/provider-trash/files', name: 'files', kind: 'directory' as const })),
     resolve: vi.fn(async (_sessionId, path) => ({
       path,
       name: path.split('/').at(-1) ?? path,
@@ -58,6 +59,89 @@ function harness(storage?: FileManagerPreferenceStorage, initial: FileManagerDel
 }
 
 describe('FileManagerService', () => {
+  it('remembers all menu switches across trees and reloads while disabled filtering keeps its query', async () => {
+    const values = new Map<string, string>()
+    const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) } }
+    const first = harness(storage)
+    const id = await first.service.open(sessionId)
+    const other = await first.service.open('other' as SessionId)
+    await first.service.toggleExpanded(id, folder.path)
+    await first.service.openFile(id, file)
+    first.service.setFilter(id, 'note')
+    expect(filterLoadedTree(first.service.snapshot(id))).toBeUndefined()
+    first.service.setFilterEnabled(true)
+    expect(filterLoadedTree(first.service.snapshot(id))?.has(file.path)).toBe(true)
+    first.service.setFilterEnabled(false)
+    expect(filterLoadedTree(first.service.snapshot(id))).toBeUndefined()
+    expect(first.service.snapshot(id)).toMatchObject({ filter: 'note', selectedPath: file.path, expanded: { [folder.path]: expect.anything() } })
+    first.service.setFilterEnabled(true)
+    await first.service.setShowHidden(id, true)
+    first.service.setDeleteMode('permanent')
+    expect(first.service.snapshot(other)).toMatchObject({ showHidden: true, filterEnabled: true, deleteMode: 'permanent', filter: '' })
+    const reloaded = harness(storage)
+    await reloaded.service.restore(sessionId, 'restored', { version: 1, address: root, expanded: [], filter: 'note', showHidden: false })
+    expect(reloaded.service.snapshot('restored')).toMatchObject({ showHidden: true, filterEnabled: true, deleteMode: 'permanent', filter: 'note' })
+    expect(filterLoadedTree(reloaded.service.snapshot('restored'))?.has(file.path)).toBe(true)
+  })
+
+  it('uses the provider trash location and retains the directory and polling on lookup failure', async () => {
+    vi.useFakeTimers()
+    const { service, gateway } = harness()
+    const id = await service.open(sessionId)
+    vi.mocked(gateway.trashLocation).mockRejectedValueOnce(new Error('trash unsupported'))
+    await service.openTrash(id)
+    expect(service.snapshot(id)).toMatchObject({ address: root, error: 'trash unsupported' })
+    const calls = vi.mocked(gateway.list).mock.calls.length
+    await vi.advanceTimersByTimeAsync(50)
+    expect(gateway.list).toHaveBeenCalledTimes(calls + 1)
+    await service.openTrash(id)
+    expect(gateway.resolve).toHaveBeenLastCalledWith(sessionId, '/provider-trash/files', expect.any(AbortSignal))
+    expect(service.snapshot(id)).toMatchObject({ address: '/provider-trash/files', trashDirectory: '/provider-trash/files' })
+    expect(service.snapshot(id).error).toBeUndefined()
+  })
+
+  it('does not let a delayed trash lookup replace a newer navigation', async () => {
+    const { service, gateway } = harness()
+    const id = await service.open(sessionId)
+    let release!: () => void
+    const done = new Promise<void>(resolve => { release = resolve })
+    vi.mocked(gateway.trashLocation).mockImplementationOnce(async () => {
+      await done
+      return { path: '/trash', name: 'trash', kind: 'directory' }
+    })
+    const opening = service.openTrash(id)
+    await service.navigate(id, '/newer')
+    release()
+    await opening
+    expect(service.snapshot(id).address).toBe('/newer')
+    expect(service.snapshot(id).trashDirectory).toBeUndefined()
+  })
+
+  it('applies hidden preference changes while another tree is still loading', async () => {
+    const { service, gateway } = harness()
+    const id = await service.open(sessionId)
+    let started!: () => void
+    let release!: () => void
+    const loading = new Promise<void>(resolve => { started = resolve })
+    const done = new Promise<void>(resolve => { release = resolve })
+    vi.mocked(gateway.list).mockImplementation(async (_sessionId, path, showHidden) => {
+      if (path === '/loading' && !showHidden) { started(); await done }
+      return { path, entries: showHidden ? [{ ...file, name: '.secret', hidden: true }] : [] }
+    })
+    const opening = service.open('loading' as SessionId, { path: '/loading' })
+    await loading
+    try {
+      await service.setShowHidden(id, true)
+      expect(service.snapshot('file-manager-tree:loading')).toMatchObject({
+        status: 'ready', showHidden: true, directory: { entries: [expect.objectContaining({ name: '.secret' })] },
+      })
+    } finally {
+      release()
+      await opening
+    }
+    expect(service.snapshot('file-manager-tree:loading').directory?.entries[0]?.name).toBe('.secret')
+  })
+
   it('persists deletion preference across trees and reloads without restoring stale tree values', async () => {
     const values = new Map<string, string>()
     const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) } }
@@ -112,7 +196,7 @@ describe('FileManagerService', () => {
       id: instanceId,
       viewId: 'file-manager-tree',
       title: 'Files',
-      restoreDescriptor: expect.objectContaining({ version: 1, address: '' }),
+      restoreDescriptor: expect.objectContaining({ version: 2, address: '' }),
       onClosed: expect.any(Function),
     }))
     expect(vi.mocked(sidebar.openInstance).mock.calls[0]?.[1]).not.toHaveProperty('onClose')
@@ -157,7 +241,7 @@ describe('FileManagerService', () => {
     expect(vi.mocked(sidebar.updateInstance)).toHaveBeenCalledTimes(updatesBeforeRefresh)
   })
 
-  it('restores the current root, expansion, selection, hidden mode, and filter', async () => {
+  it('restores legacy navigation and queries without replacing browser visibility preferences', async () => {
     const { service, gateway, sidebar } = harness()
     vi.mocked(gateway.list).mockImplementation(async (_sessionId, path, showHidden) => ({
       path,
@@ -174,13 +258,17 @@ describe('FileManagerService', () => {
     })
     expect(service.snapshot('restored-tree')).toMatchObject({
       address: root,
-      showHidden: true,
+      showHidden: false,
       filter: 'src/note',
       selectedPath: file.path,
       expanded: { [folder.path]: expect.objectContaining({ path: folder.path }) },
     })
-    expect(gateway.list).toHaveBeenCalledWith(sessionId, folder.path, true, expect.any(AbortSignal))
+    expect(gateway.list).toHaveBeenCalledWith(sessionId, folder.path, false, expect.any(AbortSignal))
     expect(sidebar.updateInstance).not.toHaveBeenCalled()
+    service.setFilter('restored-tree', 'updated')
+    const saved = vi.mocked(sidebar.updateInstance).mock.calls.at(-1)?.[2].restoreDescriptor
+    expect(saved).toMatchObject({ version: 2, filter: 'updated' })
+    expect(saved).not.toHaveProperty('showHidden')
   })
 
   it('lazy-expands, toggles hidden files, and routes files to the filesystem source', async () => {
@@ -286,6 +374,7 @@ describe('FileManagerService', () => {
     await service.toggleExpanded(instanceId, folder.path)
     await service.toggleExpanded(instanceId, deep.path)
     service.setFilter(instanceId, 'deep/needle')
+    service.setFilterEnabled(true)
     expect([...(filterLoadedTree(service.snapshot(instanceId)) ?? [])]).toEqual([
       nested.path, deep.path, folder.path,
     ])
@@ -338,6 +427,7 @@ describe('FileManagerService', () => {
     const instanceId = await service.open(sessionId, { path: file.path })
     await service.toggleExpanded(instanceId, folder.path)
     service.setFilter(instanceId, 'external')
+    service.setFilterEnabled(true)
     const external = {
       ...file,
       name: 'external.png',
