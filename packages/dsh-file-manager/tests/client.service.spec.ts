@@ -187,6 +187,41 @@ describe('FileManagerService', () => {
     expect(service.snapshot(instanceId).error).toBeUndefined()
   })
 
+  it('persists the visible file selection through polling and restoration and clears an old open error', async () => {
+    vi.useFakeTimers()
+    const { service, sidebar, resources } = harness()
+    const instanceId = await service.open(sessionId)
+    const link = {
+      ...file,
+      name: 'linked-note.txt',
+      path: '/workspace/linked-note.txt',
+      canonicalPath: '/real/note.txt',
+      symbolicLink: true,
+    }
+    vi.mocked(resources.open).mockRejectedValueOnce(new Error('first open failed'))
+    await service.openFile(instanceId, link, true)
+    expect(service.snapshot(instanceId)).toMatchObject({ selectedPath: link.path, error: 'first open failed' })
+
+    vi.mocked(resources.open).mockResolvedValueOnce('opened-resource')
+    await service.openFile(instanceId, link, true)
+    expect(service.snapshot(instanceId).selectedPath).toBe(link.path)
+    expect(service.snapshot(instanceId).error).toBeUndefined()
+    expect(resources.open).toHaveBeenLastCalledWith(expect.objectContaining({
+      ref: expect.objectContaining({ resourceId: link.canonicalPath }),
+    }), expect.anything())
+
+    await vi.advanceTimersByTimeAsync(50)
+    expect(service.snapshot(instanceId).selectedPath).toBe(link.path)
+    const update = vi.mocked(sidebar.updateInstance).mock.calls.findLast(call => (
+      call[2].restoreDescriptor as { selectedPath?: string } | undefined
+    )?.selectedPath === link.path)
+    expect(update).toBeDefined()
+    const descriptor = update?.[2].restoreDescriptor
+    service.close(instanceId)
+    await service.restore(sessionId, 'restored-tree', descriptor)
+    expect(service.snapshot('restored-tree').selectedPath).toBe(link.path)
+  })
+
   it('runs create, move, and configured removal then refreshes', async () => {
     const { service, gateway } = harness()
     const instanceId = await service.open(sessionId)

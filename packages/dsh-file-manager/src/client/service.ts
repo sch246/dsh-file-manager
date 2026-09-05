@@ -397,6 +397,12 @@ export class FileManagerService {
     const record = this.#record(instanceId)
     if (entry.kind !== 'file') throw new Error('file-manager: only regular files can open as resources')
     const generation = ++record.resourceOpenGeneration
+    record.snapshot = {
+      ...withoutError(record.snapshot),
+      selectedPath: entry.path,
+    }
+    this.#checkpoint(record)
+    this.#notify(record)
     const descriptor: ResourceDescriptor = {
       ref: {
         sessionId: record.snapshot.sessionId,

@@ -39,7 +39,7 @@ Profile and Home patch layers replace the row's complete `config`. Preserve ever
 
 ### What you get
 
-The Files launcher opens one Session-owned tree instance. Its editable address, hidden-entry toggle, lazy directories, automatic and manual refresh, loaded-tree filter, empty file/folder creation, move/rename, trash, and permanent-delete actions use Host process permissions. File rows send `filesystem` descriptors to the central resource opener; single click previews in a stable group right of the tree and double click requests a permanent tab. Resource location segments route back to the tree through `selectorId: 'file-manager'`.
+The Files launcher opens one Session-owned tree instance. Its editable address, hidden-entry toggle, lazy directories, automatic and manual refresh, loaded-tree filter, empty file/folder creation, move/rename, trash, and permanent-delete actions use Host process permissions. File rows select and persist their visible path while sending the canonical `filesystem` descriptor to the central resource opener; single click previews in a stable group right of the tree and double click requests a permanent tab. Resource location segments route back to the tree through `selectorId: 'file-manager'`.
 
 Automatic refresh polls only the current and expanded loaded directories, schedules after the prior cycle, and retains the mounted tree, reachable expansion, selection, and filter. A failed directory keeps its last successful listing and displays the failure. Filtering matches loaded names and relative paths in memory, retains ancestors, and never recursively reads unloaded directories.
 

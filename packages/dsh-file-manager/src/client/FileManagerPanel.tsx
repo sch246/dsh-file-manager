@@ -81,7 +81,7 @@ function EntryRow({
     <>
       <div
         className="dsh-file-manager-entry"
-        data-selected={instance.selectedPath === entry.canonicalPath ? 'true' : undefined}
+        data-selected={instance.selectedPath === entry.path ? 'true' : undefined}
         style={{ paddingInlineStart: `${depth * 16 + 8}px` }}
       >
         {directory

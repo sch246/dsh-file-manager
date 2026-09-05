@@ -9,7 +9,7 @@
 - Directories load lazily. Non-overlapping polling refreshes the current and expanded loaded directories while retaining expansion, selection, filter, and the mounted scroll container; failed listings remain visible with an error.
 - Browser reload restores the tree's current root, expanded directories, selection, hidden-entry mode, and filter. Cleanup runs only after the sidebar authoritatively removes the instance.
 - The loaded-tree filter matches names and relative paths, keeps matching ancestors, and never scans unloaded directories as the user types.
-- Directory selections from resource locations launch or activate the tree. A file single click requests a preview to the right of the tree; double click requests a permanent tab through `ctx.resourceWorkbench.open()`.
+- Directory selections from resource locations launch or activate the tree. A file click selects the visible row while opening its canonical resource; single click requests a preview to the right of the tree, and double click requests a permanent tab through `ctx.resourceWorkbench.open()`.
 - Chat workspace file clicks use the same central resource opener under the configured `preview`, `system`, or `preview-or-system` waterfall policy.
 
 This browser capability intentionally does not use `ctx.fs`: agent sandbox and approval policy do not constrain authenticated user-interface filesystem operations. Deploy the Web Host under the operating-system account whose files the user is meant to manage.

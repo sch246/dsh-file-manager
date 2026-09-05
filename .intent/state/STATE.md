@@ -17,7 +17,7 @@ Provide an authenticated DeepSeek Harness Web file manager for browsing and edit
 - Revisions contain exact content SHA-256 and file stat values. Plugin writes to one canonical resource are serialized. Save stages a same-directory file and rechecks the exact loaded revision immediately before atomic rename.
 - The ordinary filesystem cannot provide strict compare-and-swap against an uncooperative external writer between the final recheck and rename. `supportsConditionalSave` means guarded optimistic publication within this stated limit, not universal atomic CAS.
 - Text and byte source watches poll only while subscribed, wait for each read before scheduling the next, and abort/clear their timer on disposal.
-- Regular-file links from the tree and Chat route through the central resource-opening service. A tree single click requests a preview in the group to the right of the tree; a double click requests a permanent tab. Directory links open the tree. Chat preserves the existing waterfall: `preview` handles, `system` delegates, and `preview-or-system` delegates only when browser resource opening fails.
+- Regular-file links from the tree and Chat route through the central resource-opening service. A tree click selects and persists the visible row path while opening the canonical resource; single click requests a preview in the group to the right of the tree, and double click requests a permanent tab. A new attempt clears the preceding open error, and superseded preview failures stay hidden. Directory links open the tree. Chat preserves the existing waterfall: `preview` handles, `system` delegates, and `preview-or-system` delegates only when browser resource opening fails.
 
 ## Acceptance criteria
 
