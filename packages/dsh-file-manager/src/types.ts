@@ -110,10 +110,10 @@ export interface FileManagerMoveRequest {
 export interface FileManagerMoveResult { readonly path: string }
 
 /** Removal request; permanent deletion requires one confirmed browser action. */
-export interface FileManagerRemoveRequest extends FileManagerPathRequest {
+export interface FileManagerDeleteEntryRequest extends FileManagerPathRequest {
   readonly mode: FileManagerDeleteMode
   readonly confirmed: boolean
 }
 
 /** Removal acknowledgement naming the completed mode. */
-export interface FileManagerRemoveResult { readonly mode: FileManagerDeleteMode }
+export interface FileManagerDeleteEntryResult { readonly mode: FileManagerDeleteMode }

@@ -26,6 +26,8 @@ it('reads through the Cordis service receiver used by Remote dispatch', async ()
     ctx.provide('sessions', { get: () => ({ header: { cwd: root } }) } as never)
     await fiber.await()
     const remote = ctx.get('fileManager') as FileManagerRemote
+    expect(Object.hasOwn(FileManagerRemote.prototype, 'remove')).toBe(false)
+    expect(Object.hasOwn(FileManagerRemote.prototype, 'deleteEntry')).toBe(true)
     const signal = new AbortController().signal
     const sessionId = 'remote-fixture' as SessionId
     expect(await remote.initialLocation({ sessionId }, signal)).toMatchObject({ path: root, kind: 'directory' })

@@ -28,9 +28,12 @@ import { FILE_MANAGER_CSS } from './styles.ts'
 import type { FileManagerResolvedPath } from '../types.ts'
 
 export type {
-  FileManagerGateway, FileManagerResourceOpener, FileManagerSelection, FileManagerSnapshot,
+  FileManagerGateway, FileManagerResourceOpener, FileManagerRestoreDescriptor,
+  FileManagerSelection, FileManagerSnapshot,
 } from './service.ts'
-export { FileManagerService, filterLoadedTree, parseFileManagerSelection } from './service.ts'
+export {
+  FileManagerService, filterLoadedTree, parseFileManagerRestoreDescriptor, parseFileManagerSelection,
+} from './service.ts'
 export type { FilesystemSourceGateway } from './source.ts'
 export { FilesystemResourceSource } from './source.ts'
 
@@ -97,8 +100,8 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
     move: async (sessionId, source, destination, signal) => {
       valueOf(await ctx.remote.fileManager.move({ sessionId, source, destination }, signal))
     },
-    remove: async (sessionId, path, mode, confirmed, signal) => {
-      valueOf(await ctx.remote.fileManager.remove({ sessionId, path, mode, confirmed }, signal))
+    deleteEntry: async (sessionId, path, mode, confirmed, signal) => {
+      valueOf(await ctx.remote.fileManager.deleteEntry({ sessionId, path, mode, confirmed }, signal))
     },
   }
   // Native opening is optional; its probe must not gate browser file management.
@@ -176,8 +179,13 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
       t,
     }),
   }, FileManagerPanel))
+  const unregisterRestorer = sidebar.registerRestorer('file-manager-tree', async context => {
+    await runtime.restore(SessionId(context.sessionId), context.instanceId, context.descriptor)
+    return { onClosed: () => { runtime.close(context.instanceId) } }
+  })
 
   return () => {
+    unregisterRestorer()
     offView()
     offPresentation()
     offChat()

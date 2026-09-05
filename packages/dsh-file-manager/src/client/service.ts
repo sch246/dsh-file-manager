@@ -14,7 +14,7 @@ export interface FileManagerGateway {
   list(sessionId: SessionId, path: string, showHidden: boolean, signal: AbortSignal): Promise<FileManagerDirectory>
   create(sessionId: SessionId, parent: string, name: string, kind: 'file' | 'directory', signal: AbortSignal): Promise<void>
   move(sessionId: SessionId, source: string, destination: string, signal: AbortSignal): Promise<void>
-  remove(sessionId: SessionId, path: string, mode: FileManagerDeleteMode, confirmed: boolean, signal: AbortSignal): Promise<void>
+  deleteEntry(sessionId: SessionId, path: string, mode: FileManagerDeleteMode, confirmed: boolean, signal: AbortSignal): Promise<void>
 }
 
 /** Generic resource-opening intent needed by tree file links. */
@@ -42,6 +42,8 @@ interface RecordState {
   snapshot: FileManagerSnapshot
   readonly listeners: Set<() => void>
   resourceOpenGeneration: number
+  checkpointEnabled: boolean
+  restoreCheckpoint?: string
   controller?: AbortController
   pollController?: AbortController
   pollTimer?: ReturnType<typeof setTimeout>
@@ -49,6 +51,16 @@ interface RecordState {
 
 /** Accepted external selection for the `file-manager` launcher. */
 export interface FileManagerSelection { readonly path: string }
+
+/** JSON-safe tree state persisted by the sidebar workbench. */
+export interface FileManagerRestoreDescriptor {
+  readonly version: 1
+  readonly address: string
+  readonly showHidden: boolean
+  readonly filter: string
+  readonly expanded: readonly string[]
+  readonly selectedPath?: string
+}
 
 /** Validate selector input before opening or changing tree state. */
 export function parseFileManagerSelection(value: unknown): FileManagerSelection | undefined {
@@ -60,6 +72,28 @@ export function parseFileManagerSelection(value: unknown): FileManagerSelection 
     return { path: (value as { path: string }).path }
   }
   throw new Error('file-manager: selection must be a non-empty path or { path }')
+}
+
+/** Validate persisted tree state before filesystem restoration. */
+export function parseFileManagerRestoreDescriptor(value: unknown): FileManagerRestoreDescriptor {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('file-manager: restore descriptor must be an object')
+  }
+  const candidate = value as Partial<FileManagerRestoreDescriptor>
+  if (candidate.version !== 1 || typeof candidate.address !== 'string'
+    || typeof candidate.showHidden !== 'boolean' || typeof candidate.filter !== 'string'
+    || !Array.isArray(candidate.expanded) || !candidate.expanded.every(path => typeof path === 'string' && path !== '')
+    || (candidate.selectedPath !== undefined && (typeof candidate.selectedPath !== 'string' || candidate.selectedPath === ''))) {
+    throw new Error('file-manager: restore descriptor is invalid')
+  }
+  return {
+    version: 1,
+    address: candidate.address,
+    showHidden: candidate.showHidden,
+    filter: candidate.filter,
+    expanded: [...new Set(candidate.expanded)],
+    ...(candidate.selectedPath === undefined ? {} : { selectedPath: candidate.selectedPath }),
+  }
 }
 
 function parentOf(path: string): string {
@@ -208,6 +242,7 @@ export class FileManagerService {
         },
         listeners: new Set(),
         resourceOpenGeneration: 0,
+        checkpointEnabled: false,
       }
       this.#records.set(instanceId, record)
       try {
@@ -215,19 +250,66 @@ export class FileManagerService {
           id: instanceId,
           viewId: 'file-manager-tree',
           title: this.#title(),
-          onClose: () => this.close(instanceId),
+          restoreDescriptor: this.#descriptor(record.snapshot),
+          onClosed: () => { this.close(instanceId) },
         })
       } catch (error: unknown) {
         this.#records.delete(instanceId)
         record.listeners.clear()
         throw error
       }
+      record.checkpointEnabled = true
       await this.#navigate(record, selection?.path)
     } else {
       this.#sidebar.activateInstance(sessionId, instanceId)
       if (selection !== undefined) await this.#navigate(record, selection.path)
     }
     return instanceId
+  }
+
+  /** Reconstruct one persisted tree without reopening or replacing its sidebar instance. */
+  async restore(sessionId: SessionId, instanceId: string, rawDescriptor: unknown): Promise<void> {
+    this.#assertLive()
+    if (this.#records.has(instanceId)) throw new Error(`file-manager: tree instance "${instanceId}" already exists`)
+    const descriptor = parseFileManagerRestoreDescriptor(rawDescriptor)
+    const record: RecordState = {
+      snapshot: {
+        instanceId,
+        sessionId,
+        status: 'loading',
+        address: descriptor.address,
+        showHidden: descriptor.showHidden,
+        filter: descriptor.filter,
+        deleteMode: this.#deleteMode,
+        expanded: Object.freeze({}),
+        refreshErrors: Object.freeze({}),
+        ...(descriptor.selectedPath === undefined ? {} : { selectedPath: descriptor.selectedPath }),
+      },
+      listeners: new Set(),
+      resourceOpenGeneration: 0,
+      checkpointEnabled: false,
+    }
+    this.#records.set(instanceId, record)
+    await this.#navigate(record, descriptor.address === '' ? undefined : descriptor.address)
+    if (this.#records.get(instanceId) !== record) return
+    if (record.snapshot.directory === undefined) {
+      const message = record.snapshot.error ?? 'file-manager: persisted tree could not be restored'
+      this.close(instanceId)
+      throw new Error(message)
+    }
+    for (const path of descriptor.expanded) {
+      if (this.#records.get(instanceId) !== record) return
+      await this.toggleExpanded(instanceId, path)
+    }
+    if (this.#records.get(instanceId) !== record) return
+    record.snapshot = {
+      ...record.snapshot,
+      filter: descriptor.filter,
+      ...(descriptor.selectedPath === undefined ? {} : { selectedPath: descriptor.selectedPath }),
+    }
+    record.checkpointEnabled = true
+    record.restoreCheckpoint = JSON.stringify(descriptor)
+    this.#notify(record)
   }
 
   /** Read one immutable tree snapshot. */
@@ -258,6 +340,7 @@ export class FileManagerService {
     const record = this.#record(instanceId)
     if (record.snapshot.showHidden === showHidden) return
     record.snapshot = { ...record.snapshot, showHidden }
+    this.#checkpoint(record)
     this.#notify(record)
     await this.refresh(instanceId)
   }
@@ -267,6 +350,7 @@ export class FileManagerService {
     const record = this.#record(instanceId)
     if (record.snapshot.filter === filter) return
     record.snapshot = { ...record.snapshot, filter }
+    this.#checkpoint(record)
     this.#notify(record)
   }
 
@@ -284,6 +368,7 @@ export class FileManagerService {
         expanded: Object.freeze(expanded),
         refreshErrors: Object.freeze(refreshErrors),
       }
+      this.#checkpoint(record)
       this.#notify(record)
       this.#startPolling(record)
       return
@@ -298,6 +383,7 @@ export class FileManagerService {
         ...withoutError(record.snapshot),
         expanded: Object.freeze({ ...record.snapshot.expanded, [path]: directory }),
       }
+      this.#checkpoint(record)
       this.#notify(record)
     } catch (error: unknown) {
       this.#fail(record, operation, error)
@@ -351,7 +437,7 @@ export class FileManagerService {
   /** Remove one path; the Host enforces the configured mode and permanent confirmation. */
   async remove(instanceId: string, path: string, mode: FileManagerDeleteMode, confirmed: boolean): Promise<void> {
     const record = this.#record(instanceId)
-    await this.#mutate(record, signal => this.#gateway.remove(
+    await this.#mutate(record, signal => this.#gateway.deleteEntry(
       record.snapshot.sessionId, path, mode, confirmed, signal,
     ))
   }
@@ -412,6 +498,7 @@ export class FileManagerService {
         refreshErrors: Object.freeze({}),
         ...(resolved.kind === 'file' ? { selectedPath: resolved.path } : {}),
       }
+      this.#checkpoint(record)
       this.#notify(record)
     } catch (error: unknown) {
       this.#fail(record, operation, error)
@@ -455,6 +542,7 @@ export class FileManagerService {
       expanded: Object.freeze(expanded),
       refreshErrors: Object.freeze(retainedErrors),
     }
+    this.#checkpoint(record)
     this.#notify(record)
   }
 
@@ -538,6 +626,26 @@ export class FileManagerService {
 
   #assertLive(): void {
     if (this.#disposed) throw new Error('file-manager: service is disposed')
+  }
+
+  #descriptor(snapshot: FileManagerSnapshot): FileManagerRestoreDescriptor {
+    return {
+      version: 1,
+      address: snapshot.address,
+      showHidden: snapshot.showHidden,
+      filter: snapshot.filter,
+      expanded: Object.keys(snapshot.expanded),
+      ...(snapshot.selectedPath === undefined ? {} : { selectedPath: snapshot.selectedPath }),
+    }
+  }
+
+  #checkpoint(record: RecordState): void {
+    if (!record.checkpointEnabled || this.#records.get(record.snapshot.instanceId) !== record) return
+    const descriptor = this.#descriptor(record.snapshot)
+    const encoded = JSON.stringify(descriptor)
+    if (record.restoreCheckpoint === encoded) return
+    this.#sidebar.updateInstance(record.snapshot.sessionId, record.snapshot.instanceId, { restoreDescriptor: descriptor })
+    record.restoreCheckpoint = encoded
   }
 
   #notify(record: RecordState): void {

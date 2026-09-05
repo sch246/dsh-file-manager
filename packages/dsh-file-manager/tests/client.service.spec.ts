@@ -2,8 +2,8 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RightSidebarService } from '@dsh-external/dsh-right-sidebar/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  FileManagerService, filterLoadedTree, parseFileManagerSelection, type FileManagerGateway,
-  type FileManagerResourceOpener,
+  FileManagerService, filterLoadedTree, parseFileManagerRestoreDescriptor, parseFileManagerSelection,
+  type FileManagerGateway, type FileManagerResourceOpener,
 } from '../src/client/service.ts'
 import { ResourceSourceId } from '@dsh-external/dsh-file-viewer/client'
 
@@ -40,11 +40,12 @@ function harness() {
     })),
     create: vi.fn(async () => {}),
     move: vi.fn(async () => {}),
-    remove: vi.fn(async () => {}),
+    deleteEntry: vi.fn(async () => {}),
   }
   const sidebar = {
     openInstance: vi.fn(),
     activateInstance: vi.fn(),
+    updateInstance: vi.fn(),
   } as unknown as RightSidebarService
   const resources = { open: vi.fn(async () => 'resource-1') } satisfies FileManagerResourceOpener
   const service = new FileManagerService(
@@ -62,14 +63,20 @@ describe('FileManagerService', () => {
     const { service, sidebar } = harness()
     await expect(service.open(sessionId, { path: 3 })).rejects.toThrow('selection must')
     expect(sidebar.openInstance).not.toHaveBeenCalled()
+    expect(() => parseFileManagerRestoreDescriptor({ version: 1, address: root })).toThrow('restore descriptor')
   })
 
   it('opens cwd once, activates the existing tree, and selects a requested file', async () => {
     const { service, sidebar, gateway } = harness()
     const instanceId = await service.open(sessionId)
     expect(sidebar.openInstance).toHaveBeenCalledWith(sessionId, expect.objectContaining({
-      id: instanceId, viewId: 'file-manager-tree', title: 'Files', onClose: expect.any(Function),
+      id: instanceId,
+      viewId: 'file-manager-tree',
+      title: 'Files',
+      restoreDescriptor: expect.objectContaining({ version: 1, address: '' }),
+      onClosed: expect.any(Function),
     }))
+    expect(vi.mocked(sidebar.openInstance).mock.calls[0]?.[1]).not.toHaveProperty('onClose')
     expect(service.snapshot(instanceId)).toMatchObject({ status: 'ready', address: root })
 
     await service.open(sessionId, { path: '/other/note.txt' })
@@ -87,6 +94,54 @@ describe('FileManagerService', () => {
     vi.mocked(sidebar.openInstance).mockRejectedValueOnce(new Error('placement unavailable'))
     await expect(service.open(sessionId)).rejects.toThrow('placement unavailable')
     expect(() => service.snapshot(`file-manager-tree:${String(sessionId)}`)).toThrow('unknown tree instance')
+  })
+
+  it('cleans up only after committed close and suppresses a late refresh checkpoint', async () => {
+    const { service, sidebar, gateway } = harness()
+    const instanceId = await service.open(sessionId)
+    const input = vi.mocked(sidebar.openInstance).mock.calls[0]?.[1]
+    expect(input).not.toHaveProperty('onClose')
+    expect(service.snapshot(instanceId).status).toBe('ready')
+
+    let release: (() => void) | undefined
+    vi.mocked(gateway.list).mockImplementationOnce(async (_sessionId, path, _showHidden, signal) => {
+      await new Promise<void>(resolve => { release = resolve })
+      signal.throwIfAborted()
+      return { path, parent: '/', entries: [folder, file] }
+    })
+    const updatesBeforeRefresh = vi.mocked(sidebar.updateInstance).mock.calls.length
+    const refresh = service.refresh(instanceId)
+    input?.onClosed?.()
+    expect(() => service.snapshot(instanceId)).toThrow('unknown tree instance')
+    release?.()
+    await refresh
+    expect(vi.mocked(sidebar.updateInstance)).toHaveBeenCalledTimes(updatesBeforeRefresh)
+  })
+
+  it('restores the current root, expansion, selection, hidden mode, and filter', async () => {
+    const { service, gateway, sidebar } = harness()
+    vi.mocked(gateway.list).mockImplementation(async (_sessionId, path, showHidden) => ({
+      path,
+      parent: '/',
+      entries: path === root ? [folder, file] : [{ ...file, path: `${path}/note.txt`, canonicalPath: `${path}/note.txt`, hidden: showHidden }],
+    }))
+    await service.restore(sessionId, 'restored-tree', {
+      version: 1,
+      address: root,
+      showHidden: true,
+      filter: 'src/note',
+      expanded: [folder.path, folder.path],
+      selectedPath: file.path,
+    })
+    expect(service.snapshot('restored-tree')).toMatchObject({
+      address: root,
+      showHidden: true,
+      filter: 'src/note',
+      selectedPath: file.path,
+      expanded: { [folder.path]: expect.objectContaining({ path: folder.path }) },
+    })
+    expect(gateway.list).toHaveBeenCalledWith(sessionId, folder.path, true, expect.any(AbortSignal))
+    expect(sidebar.updateInstance).not.toHaveBeenCalled()
   })
 
   it('lazy-expands, toggles hidden files, and routes files to the filesystem source', async () => {
@@ -140,7 +195,7 @@ describe('FileManagerService', () => {
     await service.remove(instanceId, folder.path, 'trash', false)
     expect(gateway.create).toHaveBeenCalledWith(sessionId, root, 'new.txt', 'file', expect.any(AbortSignal))
     expect(gateway.move).toHaveBeenCalledWith(sessionId, file.path, '/workspace/renamed.txt', expect.any(AbortSignal))
-    expect(gateway.remove).toHaveBeenCalledWith(sessionId, folder.path, 'trash', false, expect.any(AbortSignal))
+    expect(gateway.deleteEntry).toHaveBeenCalledWith(sessionId, folder.path, 'trash', false, expect.any(AbortSignal))
     expect(gateway.list).toHaveBeenCalledTimes(4)
   })
 

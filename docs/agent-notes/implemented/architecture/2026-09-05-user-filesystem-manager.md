@@ -18,6 +18,8 @@ Recoverable removal sends a file, link, or directory to operating-system trash w
 
 Directory polling schedules a new cycle only after the preceding cycle and reads only the current and expanded loaded directories. A superseding operation or disposal aborts the polling lifetime. Successful results update existing tree state in place; failed directories retain their last listing and expose the failure. The filter traverses only these loaded snapshots in memory and retains ancestors of matching names or relative paths.
 
+The sidebar persists a versioned tree descriptor with the current root, expanded paths, selection, hidden-entry mode, and filter. Its restorer reconstructs this state before marking the instance ready. Close confirmation makes no feature mutation; only the authoritative close notification releases tree state and cancels reads. The deletion Remote uses `deleteEntry` because Cordis Service owns the lifecycle method named `remove`.
+
 ## Alternatives considered
 
 **Use `ctx.fs` and Session workspace containment.** This would apply agent sandbox and approval policy to an authenticated user action and prevent the required navigation beyond Session cwd.

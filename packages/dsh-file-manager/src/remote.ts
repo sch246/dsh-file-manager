@@ -8,10 +8,10 @@ import {
 } from './filesystem.ts'
 import type {
   FileManagerCreateRequest, FileManagerCreateResult, FileManagerDirectory,
+  FileManagerDeleteEntryRequest, FileManagerDeleteEntryResult,
   FileManagerInitialLocationRequest, FileManagerListRequest, FileManagerMetadata,
   FileManagerMoveRequest, FileManagerMoveResult, FileManagerPathRequest,
-  FileManagerRemoveRequest, FileManagerRemoveResult, FileManagerResolvedPath,
-  FileManagerSaveBytesRequest, FileManagerSaveRequest, FileManagerSaveResult,
+  FileManagerResolvedPath, FileManagerSaveBytesRequest, FileManagerSaveRequest, FileManagerSaveResult,
   FileManagerTextDocument, FileManagerBytesDocument,
 } from './types.ts'
 
@@ -167,8 +167,8 @@ export class FileManagerRemote extends TypertRemoteService {
   }
 
   /** Apply the configured recoverable or confirmed permanent removal behavior. */
-  @Remote('remove')
-  async remove(request: FileManagerRemoveRequest, signal: AbortSignal): Promise<FileManagerRemoveResult> {
+  @Remote('deleteEntry')
+  async deleteEntry(request: FileManagerDeleteEntryRequest, signal: AbortSignal): Promise<FileManagerDeleteEntryResult> {
     return await this.guard(signal, async () => {
       signal.throwIfAborted()
       const path = await this.absolute(request, signal)

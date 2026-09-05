@@ -7,6 +7,7 @@
 - The Files launcher opens a Session-owned `file-manager-tree` instance in `@dsh-external/dsh-right-sidebar`.
 - Session cwd is the initial directory only. The editable address accepts absolute paths anywhere the Host service process can access.
 - Directories load lazily. Non-overlapping polling refreshes the current and expanded loaded directories while retaining expansion, selection, filter, and the mounted scroll container; failed listings remain visible with an error.
+- Browser reload restores the tree's current root, expanded directories, selection, hidden-entry mode, and filter. Cleanup runs only after the sidebar authoritatively removes the instance.
 - The loaded-tree filter matches names and relative paths, keeps matching ancestors, and never scans unloaded directories as the user types.
 - Directory selections from resource locations launch or activate the tree. A file single click requests a preview to the right of the tree; double click requests a permanent tab through `ctx.resourceWorkbench.open()`.
 - Chat workspace file clicks use the same central resource opener under the configured `preview`, `system`, or `preview-or-system` waterfall policy.

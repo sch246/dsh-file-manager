@@ -43,6 +43,8 @@ The Files launcher opens one Session-owned tree instance. Its editable address, 
 
 Automatic refresh polls only the current and expanded loaded directories, schedules after the prior cycle, and retains the mounted tree, reachable expansion, selection, and filter. A failed directory keeps its last successful listing and displays the failure. Filtering matches loaded names and relative paths in memory, retains ancestors, and never recursively reads unloaded directories.
 
+The sidebar persists the current root, expanded paths, selection, hidden-entry mode, and filter in a versioned descriptor. Its restorer rebuilds the loaded tree before the view becomes ready. Close confirmation performs no cleanup; the committed close notification cancels pending reads and releases tree state.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -53,7 +55,7 @@ The Bundle keeps filesystem authority and all registrations in one lifecycle so 
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The `fileManager` Typert namespace uses Node filesystem operations rather than agent `ctx.fs`. Session cwd resolves relative requests and the initial location but does not contain absolute navigation. Symlink navigation and reads publish canonical resource identities; move and deletion act on the visible link path.
+The `fileManager` Typert namespace uses Node filesystem operations rather than agent `ctx.fs`. Session cwd resolves relative requests and the initial location but does not contain absolute navigation. Symlink navigation and reads publish canonical resource identities; move and deletion act on the visible link path. The public deletion RPC is `deleteEntry`; `remove` remains reserved for the Cordis Service lifecycle.
 
 The `filesystem` source exposes metadata, exact bytes, and canonical LF text independently. Only text rejects NUL bytes or malformed UTF-8 and restores the loaded line-ending convention during save. Per-resource text and byte writes share one serialized staged publisher, compare content SHA-256 and stat fields immediately before rename, and then replace atomically. Permission bits are restored, but inode replacement does not promise ownership, access-control entry, extended-attribute, or other filesystem-specific metadata preservation. Source polling starts only for a resource subscription, schedules after the preceding read completes, and aborts on disposal.
 
