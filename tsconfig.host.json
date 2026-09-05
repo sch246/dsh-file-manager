@@ -5,7 +5,7 @@
     { "path": "./harness/vendor/cordis" },
     { "path": "./harness/vendor/schemastery" },
     { "path": "./harness/packages/core/session" },
-    { "path": "./harness/packages/session/persistence" },
+    { "path": "./harness/packages/session/session-persistence" },
     { "path": "./harness/packages/typert/protocol" },
     { "path": "./packages/dsh-file-manager/tsconfig.host.json" }
   ]

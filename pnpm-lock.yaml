@@ -45,11 +45,11 @@ importers:
         specifier: ^3.18.2
         version: 3.18.2
       '@dsh-external/dsh-file-viewer':
-        specifier: link:../dsh-file-viewer-ui/packages/dsh-file-viewer
-        version: link:../dsh-file-viewer-ui/packages/dsh-file-viewer
+        specifier: link:../dsh-file-viewer/packages/dsh-file-viewer
+        version: link:../dsh-file-viewer/packages/dsh-file-viewer
       '@dsh-external/dsh-right-sidebar':
-        specifier: link:../dsh-right-sidebar-workbench
-        version: link:../dsh-right-sidebar-workbench
+        specifier: link:../dsh-right-sidebar
+        version: link:../dsh-right-sidebar
       '@types/node':
         specifier: ^24.3.0
         version: 24.13.3
