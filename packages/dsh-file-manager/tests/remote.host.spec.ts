@@ -18,7 +18,6 @@ it('reads through the Cordis service receiver used by Remote dispatch', async ()
       maxByteReadBytes: 4096,
       resourcePollIntervalMs: 1000,
       directoryPollIntervalMs: 1000,
-      openMode: 'preview',
       deleteMode: 'trash',
     })
   } })
@@ -64,7 +63,6 @@ it('resolves bounded metadata batches independently without reading content and 
       maxByteReadBytes: 1,
       resourcePollIntervalMs: 1000,
       directoryPollIntervalMs: 1000,
-      openMode: 'preview',
       deleteMode: 'permanent',
     })
   } })

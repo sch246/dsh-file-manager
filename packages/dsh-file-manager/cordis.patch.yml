@@ -7,6 +7,5 @@
         maxByteReadBytes: 16777216
         resourcePollIntervalMs: 2000
         directoryPollIntervalMs: 2000
-        openMode: preview-or-system
         deleteMode: trash
         moveCommand: mv

@@ -3,14 +3,8 @@ import { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
-import type { ChatFileOpenRequest } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
-import {
-  ResourceSourceId,
-  type ResourceDescriptor,
-} from '@dsh-external/dsh-file-viewer/client'
 import type { RightSidebarService } from '@dsh-external/dsh-right-sidebar/client'
 import fileManagerRemote from '@dsh-external/dsh-file-manager/remote'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
@@ -26,7 +20,6 @@ import {
 } from './source.ts'
 import { FILE_MANAGER_CSS } from './styles.ts'
 import { browserPreferenceStorage } from './preferences.ts'
-import type { FileManagerResolvedPath } from '../types.ts'
 
 export type {
   FileManagerGateway, FileManagerResourceOpener, FileManagerRestoreDescriptor,
@@ -44,43 +37,6 @@ export const inject = ['remote']
 function valueOf<T>(result: RemoteResult<T>): T {
   if (result.ok) return result.value
   throw result.error
-}
-
-/** Build the Chat waterfall listener while preserving its terminal native opener. */
-export function createFileManagerChatListener(
-  mode: 'preview' | 'system' | 'preview-or-system',
-  resolvePath: (sessionId: SessionId, path: string) => Promise<FileManagerResolvedPath>,
-  open: (descriptor: ResourceDescriptor) => Promise<unknown>,
-  openDirectory: (sessionId: SessionId, path: string) => Promise<unknown>,
-): (request: ChatFileOpenRequest, next: () => Promise<void>) => Promise<void> {
-  return async (request, next) => {
-    if (mode === 'system') return await next()
-    const preview = async (): Promise<void> => {
-      const target = await resolvePath(request.sessionId, request.path)
-      if (target.kind === 'directory') {
-        await openDirectory(request.sessionId, target.path)
-      } else {
-        if (target.kind !== 'file') throw new Error(`file-manager: path "${target.path}" is not a regular resource`)
-        await open({
-          ref: {
-            sessionId: request.sessionId,
-            sourceId: ResourceSourceId('filesystem'),
-            resourceId: target.path,
-          },
-          name: target.name,
-          kind: 'file',
-          ...(target.size === undefined ? {} : { size: target.size }),
-          ...(target.mediaType === undefined ? {} : { mediaType: target.mediaType }),
-        })
-      }
-    }
-    if (mode === 'preview') return await preview()
-    try {
-      await preview()
-    } catch {
-      return await next()
-    }
-  }
 }
 
 async function registerRuntime(ctx: Context): Promise<() => void> {
@@ -151,17 +107,6 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
       await runtime.open(SessionId(rawSessionId), selection)
     },
   })
-  const offChat = ctx.on(
-    'chat/open-workspace-file',
-    createFileManagerChatListener(
-      metadata.openMode,
-      async (sessionId, path) => valueOf(
-        await ctx.remote.fileManager.resolve({ sessionId, path }),
-      ),
-      descriptor => resources.open(descriptor, { preview: true }),
-      (sessionId, path) => runtime.open(sessionId, { path }),
-    ),
-  )
   const offPresentation = ctx.effect(() => {
     const offLocale = ctx.locale.register(NS, { zh, en })
     const style = document.createElement('style')
@@ -190,7 +135,6 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
     unregisterRestorer()
     offView()
     offPresentation()
-    offChat()
     unregisterLauncher()
     unregisterSource()
     runtime.dispose()

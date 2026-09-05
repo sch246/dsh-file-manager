@@ -1,5 +1,5 @@
 ---
-description: "Authenticated filesystem tree, guarded resource source, and Chat file routing for Web profiles that compose the external file workbench."
+description: "Authenticated filesystem tree and guarded resource source for Web profiles that compose the external file workbench."
 kind: "package-bundle"
 ---
 
@@ -33,7 +33,6 @@ The Bundle requires the external right-sidebar and file-viewer Client packages i
 | `maxByteReadBytes` | `16777216` | Inclusive complete binary read and byte-save limit. |
 | `resourcePollIntervalMs` | `2000` | Delay after each completed subscribed resource poll. |
 | `directoryPollIntervalMs` | `2000` | Delay after each completed loaded-directory refresh cycle. |
-| `openMode` | `preview-or-system` | Chat file-link behavior: `preview`, `system`, or `preview-or-system`. |
 | `deleteMode` | `trash` | Initial deletion preference when the browser has no saved preference. |
 
 Profile and Home patch layers replace the row's complete `config`. Preserve every field when overriding one.
@@ -51,7 +50,7 @@ The sidebar persists the current root, expanded paths, selection, hidden-entry m
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-The Bundle keeps filesystem authority and all registrations in one lifecycle so unloading it removes the tree, source, polling, and Chat listener together.
+The Bundle keeps filesystem authority and all registrations in one lifecycle so unloading it removes the tree, source, and polling together. The independent resource-links plugin owns Chat path presentation and preview/system routing, consuming manager metadata and the Files launcher.
 
 <details>
 <summary>Implementation internals — click to expand</summary>
@@ -69,7 +68,7 @@ The metadata-only `resolveMany` Remote accepts `{ sessionId, paths }` and preser
 | [`cordis.patch.yml`](cordis.patch.yml) | Bundle row and configurable deployment values. |
 | [`src/filesystem.ts`](src/filesystem.ts) | Node metadata, text and byte reads, mutations, revisions, shared staging, and deletion. |
 | [`src/remote.ts`](src/remote.ts) | Session-relative resolution and typed Remote failures. |
-| [`src/client/`](src/client/) | Tree state/UI, resource source, polling, sidebar, and Chat registrations. |
+| [`src/client/`](src/client/) | Tree state/UI, resource source, polling, and sidebar registrations. |
 
 </details>
 

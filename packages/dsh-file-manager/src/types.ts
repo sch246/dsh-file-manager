@@ -36,7 +36,6 @@ export interface FileManagerMetadata {
   readonly maxByteReadBytes: number
   readonly resourcePollIntervalMs: number
   readonly directoryPollIntervalMs: number
-  readonly openMode: 'preview' | 'system' | 'preview-or-system'
   readonly deleteMode: FileManagerDeleteMode
 }
 

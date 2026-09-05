@@ -10,7 +10,7 @@
 - Browser reload restores the tree's current root, expanded directories, selection, hidden-entry mode, and filter. Cleanup runs only after the sidebar authoritatively removes the instance.
 - The loaded-tree filter matches names and relative paths, keeps matching ancestors, and never scans unloaded directories as the user types.
 - Directory selections from resource locations launch or activate the tree. A file click selects the visible row while opening its canonical resource; single click requests a preview to the right of the tree, and double click requests a permanent tab through `ctx.resourceWorkbench.open()`.
-- Chat workspace file clicks use the same central resource opener under the configured `preview`, `system`, or `preview-or-system` waterfall policy.
+- The independent `@dsh-external/dsh-resource-links` plugin owns Chat path presentation and preview/system routing using this manager's metadata and Files launcher.
 
 This browser capability intentionally does not use `ctx.fs`: agent sandbox and approval policy do not constrain authenticated user-interface filesystem operations. Deploy the Web Host under the operating-system account whose files the user is meant to manage.
 
@@ -27,12 +27,11 @@ The Bundle inserts:
     maxByteReadBytes: 16777216
     resourcePollIntervalMs: 2000
     directoryPollIntervalMs: 2000
-    openMode: preview-or-system
     deleteMode: trash
     moveCommand: mv
 ```
 
-`maxResolveBatchSize` caps metadata paths per request. `maxTextReadBytes` and `maxByteReadBytes` are separate inclusive complete-read and save limits. `resourcePollIntervalMs` delays text and byte source checks while subscribed; `directoryPollIntervalMs` delays loaded-directory refresh cycles. Polls schedule only after the preceding cycle completes. `openMode` controls Chat file links. `deleteMode` initializes the browser's Move to trash preference only when no valid saved preference exists. Profile and Home patch layers replace a row's complete `config`, so preserve all fields when overriding one.
+`maxResolveBatchSize` caps metadata paths per request. `maxTextReadBytes` and `maxByteReadBytes` are separate inclusive complete-read and save limits. `resourcePollIntervalMs` delays text and byte source checks while subscribed; `directoryPollIntervalMs` delays loaded-directory refresh cycles. Polls schedule only after the preceding cycle completes. `deleteMode` initializes the browser's Move to trash preference only when no valid saved preference exists. Profile and Home patch layers replace a row's complete `config`, so preserve all fields when overriding one.
 
 ## Resource reads and save guarantees
 
@@ -80,6 +79,6 @@ First installation is a high-risk Bundle change. Validate it in a private Home w
 
 - `@dsh-external/dsh-right-sidebar/client`: launcher and `rightbar.view` multi-instance APIs.
 - `@dsh-external/dsh-file-viewer/client`: `ctx.resourceWorkbench` source registration and handler-routed opening.
-- Harness Session Controller Client: optional native path opening and Chat's terminal waterfall behavior.
+- Harness Session Controller Client: optional native path opening for filesystem resources.
 
-The integrated resource-workbench package omits a workspace Host Remote, filesystem source, and Chat listener; two filesystem sources or Chat listeners would create duplicate ownership.
+The manager owns the filesystem Remote and source. The independent resource-links plugin consumes these APIs and owns Chat routing; the manager has no dependency on that consumer.

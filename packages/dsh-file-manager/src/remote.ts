@@ -73,7 +73,7 @@ export class FileManagerRemote extends TypertRemoteService {
     super(ctx, 'fileManager', { namespace: 'fileManager' })
   }
 
-  /** Return Host-owned size, polling and Chat routing configuration. */
+  /** Return Host-owned limits, polling intervals, and initial deletion preference. */
   @Remote('metadata')
   metadata(): FileManagerMetadata {
     return this.configMetadata

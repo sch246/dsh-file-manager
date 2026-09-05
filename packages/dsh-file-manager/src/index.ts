@@ -25,8 +25,6 @@ export interface Config {
   resourcePollIntervalMs: number
   /** Delay between non-overlapping refreshes of visible directory listings. */
   directoryPollIntervalMs: number
-  /** Chat workspace-file link routing policy. */
-  openMode: 'preview' | 'system' | 'preview-or-system'
   /** Initial browser deletion preference, used only when no preference is saved. */
   deleteMode: 'trash' | 'permanent'
   /** GNU mv executable; unsupported platforms fail without copying or deleting the source. */
@@ -40,7 +38,6 @@ export const Config: z<Config> = z.object({
   maxByteReadBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).required(),
   resourcePollIntervalMs: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).required(),
   directoryPollIntervalMs: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).required(),
-  openMode: z.union(['preview', 'system', 'preview-or-system'] as const).default('preview-or-system'),
   deleteMode: z.union(['trash', 'permanent'] as const).default('trash'),
   moveCommand: z.string().min(1).default('mv'),
 })

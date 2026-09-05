@@ -1,6 +1,5 @@
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createFileManagerChatListener } from '../src/client/index.ts'
 import { FilesystemResourceSource, type FilesystemSourceGateway } from '../src/client/source.ts'
 
 const sessionId = 'session-1' as SessionId
@@ -79,42 +78,5 @@ describe('filesystem resource source', () => {
     const source = new FilesystemResourceSource({ ...base, openExternal }, 10)
     await source.openExternal?.(ref, new AbortController().signal)
     expect(openExternal).toHaveBeenCalledWith(sessionId, ref.resourceId, expect.any(AbortSignal))
-  })
-})
-
-describe('Chat file routing', () => {
-  it('handles preview, delegates system, and falls back only after preview failure', async () => {
-    const request = { sessionId, path: 'relative.txt' }
-    const resolvePath = vi.fn(async () => ({
-      path: '/workspace/relative.txt', name: 'relative.txt', kind: 'file' as const, mediaType: 'text/plain', size: 8,
-    }))
-    const open = vi.fn(async () => 'editor-1')
-    const openDirectory = vi.fn(async () => 'tree-1')
-    const next = vi.fn(async () => {})
-    await createFileManagerChatListener('preview', resolvePath, open, openDirectory)(request, next)
-    expect(open).toHaveBeenCalledWith(expect.objectContaining({
-      ref: expect.objectContaining({ resourceId: '/workspace/relative.txt', sourceId: 'filesystem' }),
-      name: 'relative.txt', mediaType: 'text/plain', size: 8,
-    }))
-    expect(next).not.toHaveBeenCalled()
-
-    await createFileManagerChatListener('system', resolvePath, open, openDirectory)(request, next)
-    expect(next).toHaveBeenCalledTimes(1)
-
-    open.mockRejectedValueOnce(new Error('preview failed'))
-    await createFileManagerChatListener('preview-or-system', resolvePath, open, openDirectory)(request, next)
-    expect(next).toHaveBeenCalledTimes(2)
-  })
-
-  it('opens a directory link in the selector without creating an editor', async () => {
-    const open = vi.fn()
-    const openDirectory = vi.fn(async () => 'tree-1')
-    const next = vi.fn()
-    await createFileManagerChatListener('preview', async () => ({ path: '/workspace', name: 'workspace', kind: 'directory' }), open, openDirectory)(
-      { sessionId, path: '/workspace' }, next,
-    )
-    expect(openDirectory).toHaveBeenCalledWith(sessionId, '/workspace')
-    expect(open).not.toHaveBeenCalled()
-    expect(next).not.toHaveBeenCalled()
   })
 })

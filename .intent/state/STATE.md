@@ -1,6 +1,6 @@
 # File manager current intended state
 
-Status: candidate source revision under [the deletion-preference and batch-resolution log](../logs/2026-09-05-delete-preference-batch-resolution.md). The preceding local installation is recorded in [the deployment log](../logs/2026-09-05-resource-workbench-deployment.md); this candidate is not installed, activated, user-visually accepted, or represented by an accepted realization lock.
+Status: candidate source revision under [the resource-links cutover log](../logs/2026-09-05-resource-links-cutover.md). The preceding local installation is recorded in [the deployment log](../logs/2026-09-05-resource-workbench-deployment.md); this candidate is not activated in the managed service, user-visually accepted, or represented by an accepted realization lock.
 
 ## Intent
 
@@ -18,7 +18,7 @@ Provide an authenticated DeepSeek Harness Web file manager for browsing and edit
 - Revisions contain exact content SHA-256 and file stat values. Plugin writes to one canonical resource are serialized. Save stages a same-directory file and rechecks the exact loaded revision immediately before atomic rename.
 - The ordinary filesystem cannot provide strict compare-and-swap against an uncooperative external writer between the final recheck and rename. `supportsConditionalSave` means guarded optimistic publication within this stated limit, not universal atomic CAS.
 - Text and byte source watches poll only while subscribed, wait for each read before scheduling the next, and abort/clear their timer on disposal.
-- Regular-file links from the tree and Chat route through the central resource-opening service. A tree click selects and persists the visible row path while opening the canonical resource; single click requests a preview in the group to the right of the tree, and double click requests a permanent tab. A new attempt clears the preceding open error, and superseded preview failures stay hidden. Directory links open the tree. Chat preserves the existing waterfall: `preview` handles, `system` delegates, and `preview-or-system` delegates only when browser resource opening fails.
+- Regular-file links from the tree route through the central resource-opening service. A tree click selects and persists the visible row path while opening the canonical resource; single click requests a preview in the group to the right of the tree, and double click requests a permanent tab. A new attempt clears the preceding open error, and superseded preview failures stay hidden. Directory selections open the tree. The independent resource-links plugin owns Chat path presentation and preview/system routing; the manager supplies metadata and the Files selector without a Chat listener or routing policy.
 
 ## Acceptance criteria
 
@@ -30,7 +30,7 @@ Provide an authenticated DeepSeek Harness Web file manager for browsing and edit
 - `MANAGER-006`: Text and directory polling never overlap within their lifecycle, stop after disposal, and cannot publish late results. Directory changes refresh the current and expanded loaded tree while retained expansion, selection, filtering, scroll container, and explicit failures remain observable.
 - `MANAGER-007`: Build emits Host, Remote, declarations, and browser Client artifacts; setup requires explicit checkout/home/profile and never restarts a service.
 - `MANAGER-008`: Loaded-tree filtering matches names and relative paths, retains matching ancestors, performs no recursive filesystem read on input, and clearing it restores the unfiltered loaded tree.
-- `MANAGER-009`: Chat preview and tree selection use the central resource-opening service; directory links stay with the tree, and `system` plus `preview-or-system` delegation semantics remain unchanged.
+- `MANAGER-009`: Tree selection uses the central resource-opening service; external directory selections use the Files launcher. Chat routing belongs solely to the independent resource-links consumer.
 - `MANAGER-010`: Browser reload reconstructs the tree's current root, reachable expansion, selection, hidden-entry mode, and filter. A stale, vetoed, or superseded close attempt cannot release feature state, and late directory reads cannot checkpoint after committed removal.
 - `MANAGER-011`: resolveMany accepts up to maxResolveBatchSize paths, returns separate ordered successes and failures without content reads, and rejects larger or cancelled requests.
 
