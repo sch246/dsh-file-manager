@@ -1,10 +1,11 @@
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RightSidebarService } from '@dsh-external/dsh-right-sidebar/client'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  FileManagerService, parseFileManagerSelection, type FileManagerGateway, type FileManagerViewer,
+  FileManagerService, filterLoadedTree, parseFileManagerSelection, type FileManagerGateway,
+  type FileManagerResourceOpener,
 } from '../src/client/service.ts'
-import { FileViewerSourceId } from '@dsh-external/dsh-file-viewer/client'
+import { ResourceSourceId } from '@dsh-external/dsh-file-viewer/client'
 
 const sessionId = 'session-1' as SessionId
 const root = '/workspace'
@@ -17,11 +18,19 @@ const folder = {
   kind: 'directory' as const, symbolicLink: false, hidden: false,
 }
 
+const services: FileManagerService[] = []
+
+afterEach(() => {
+  for (const service of services.splice(0)) service.dispose()
+  vi.useRealTimers()
+})
+
 function harness() {
   const gateway: FileManagerGateway = {
-    initialLocation: vi.fn(async () => ({ path: root, kind: 'directory' as const })),
+    initialLocation: vi.fn(async () => ({ path: root, name: 'workspace', kind: 'directory' as const })),
     resolve: vi.fn(async (_sessionId, path) => ({
       path,
+      name: path.split('/').at(-1) ?? path,
       kind: path.endsWith('.txt') ? 'file' as const : 'directory' as const,
     })),
     list: vi.fn(async (_sessionId, path, showHidden) => ({
@@ -31,15 +40,18 @@ function harness() {
     })),
     create: vi.fn(async () => {}),
     move: vi.fn(async () => {}),
-    trash: vi.fn(async () => {}),
+    remove: vi.fn(async () => {}),
   }
   const sidebar = {
     openInstance: vi.fn(),
     activateInstance: vi.fn(),
   } as unknown as RightSidebarService
-  const viewer = { open: vi.fn(async () => 'editor-1') } satisfies FileManagerViewer
-  const service = new FileManagerService(gateway, sidebar, viewer, FileViewerSourceId('filesystem'), () => 'Files')
-  return { gateway, sidebar, viewer, service }
+  const resources = { open: vi.fn(async () => 'resource-1') } satisfies FileManagerResourceOpener
+  const service = new FileManagerService(
+    gateway, sidebar, resources, ResourceSourceId('filesystem'), () => 'Files', 50, 'trash',
+  )
+  services.push(service)
+  return { gateway, sidebar, resources, service }
 }
 
 describe('FileManagerService', () => {
@@ -70,8 +82,15 @@ describe('FileManagerService', () => {
     expect(service.snapshot(instanceId).selectedPath).toBeUndefined()
   })
 
+  it('forgets an instance when sidebar placement rejects', async () => {
+    const { service, sidebar } = harness()
+    vi.mocked(sidebar.openInstance).mockRejectedValueOnce(new Error('placement unavailable'))
+    await expect(service.open(sessionId)).rejects.toThrow('placement unavailable')
+    expect(() => service.snapshot(`file-manager-tree:${String(sessionId)}`)).toThrow('unknown tree instance')
+  })
+
   it('lazy-expands, toggles hidden files, and routes files to the filesystem source', async () => {
-    const { service, gateway, viewer } = harness()
+    const { service, gateway, resources } = harness()
     const instanceId = await service.open(sessionId)
     await service.toggleExpanded(instanceId, folder.canonicalPath)
     expect(service.snapshot(instanceId).expanded[folder.canonicalPath]).toBeDefined()
@@ -80,42 +99,190 @@ describe('FileManagerService', () => {
     await service.setShowHidden(instanceId, true)
     expect(gateway.list).toHaveBeenLastCalledWith(sessionId, root, true, expect.any(AbortSignal))
     await service.openFile(instanceId, file)
-    expect(viewer.open).toHaveBeenCalledWith({
-      sessionId, sourceId: 'filesystem', resourceId: file.canonicalPath,
+    expect(resources.open).toHaveBeenCalledWith(expect.objectContaining({
+      ref: { sessionId, sourceId: 'filesystem', resourceId: file.canonicalPath },
+      name: 'note.txt',
+    }), { target: { fromInstanceId: instanceId, direction: 'right' }, preview: true })
+    await service.openFile(instanceId, file, false)
+    expect(resources.open).toHaveBeenLastCalledWith(expect.anything(), {
+      target: { fromInstanceId: instanceId, direction: 'right' }, preview: false,
     })
-    vi.mocked(viewer.open).mockRejectedValueOnce(new Error('viewer unavailable'))
+    vi.mocked(resources.open).mockRejectedValueOnce(new Error('resource unavailable'))
     await service.openFile(instanceId, file)
-    expect(service.snapshot(instanceId).error).toBe('viewer unavailable')
+    expect(service.snapshot(instanceId).error).toBe('resource unavailable')
   })
 
-  it('runs create, move, and exact-confirmation trash then refreshes', async () => {
+  it('lets the final permanent open supersede rapid preview failures', async () => {
+    const { service, resources } = harness()
+    const instanceId = await service.open(sessionId)
+    const rejects: ((error: Error) => void)[] = []
+    vi.mocked(resources.open)
+      .mockImplementationOnce(async () => await new Promise<string>((_resolve, reject) => { rejects.push(reject) }))
+      .mockImplementationOnce(async () => await new Promise<string>((_resolve, reject) => { rejects.push(reject) }))
+      .mockResolvedValueOnce('pinned-resource')
+    const firstClick = service.openFile(instanceId, file, true)
+    const secondClick = service.openFile(instanceId, file, true)
+    const doubleClick = service.openFile(instanceId, file, false)
+    rejects[0]?.(new Error('preview superseded'))
+    rejects[1]?.(new Error('preview instance replaced'))
+    await Promise.all([firstClick, secondClick, doubleClick])
+    expect(resources.open).toHaveBeenNthCalledWith(3, expect.anything(), {
+      target: { fromInstanceId: instanceId, direction: 'right' }, preview: false,
+    })
+    expect(service.snapshot(instanceId).error).toBeUndefined()
+  })
+
+  it('runs create, move, and configured removal then refreshes', async () => {
     const { service, gateway } = harness()
     const instanceId = await service.open(sessionId)
     await service.create(instanceId, 'new.txt', 'file')
     await service.move(instanceId, file.path, '/workspace/renamed.txt')
-    await service.trash(instanceId, folder.path, folder.path)
+    await service.remove(instanceId, folder.path, 'trash', false)
     expect(gateway.create).toHaveBeenCalledWith(sessionId, root, 'new.txt', 'file', expect.any(AbortSignal))
     expect(gateway.move).toHaveBeenCalledWith(sessionId, file.path, '/workspace/renamed.txt', expect.any(AbortSignal))
-    expect(gateway.trash).toHaveBeenCalledWith(sessionId, folder.path, folder.path, expect.any(AbortSignal))
+    expect(gateway.remove).toHaveBeenCalledWith(sessionId, folder.path, 'trash', false, expect.any(AbortSignal))
     expect(gateway.list).toHaveBeenCalledTimes(4)
+  })
+
+  it('filters the loaded tree by relative path and retains matching ancestors', async () => {
+    const { service, gateway } = harness()
+    const nested = { ...file, name: 'needle.txt', path: '/workspace/src/deep/needle.txt', canonicalPath: '/workspace/src/deep/needle.txt' }
+    const deep = { ...folder, name: 'deep', path: '/workspace/src/deep', canonicalPath: '/workspace/src/deep' }
+    vi.mocked(gateway.list).mockImplementation(async (_sessionId, path) => ({
+      path,
+      parent: '/',
+      entries: path === root ? [folder] : path === folder.path ? [deep] : [nested],
+    }))
+    const instanceId = await service.open(sessionId)
+    await service.toggleExpanded(instanceId, folder.path)
+    await service.toggleExpanded(instanceId, deep.path)
+    service.setFilter(instanceId, 'deep/needle')
+    expect([...(filterLoadedTree(service.snapshot(instanceId)) ?? [])]).toEqual([
+      nested.path, deep.path, folder.path,
+    ])
+    service.setFilter(instanceId, '')
+    expect(filterLoadedTree(service.snapshot(instanceId))).toBeUndefined()
+    expect(Object.keys(service.snapshot(instanceId).expanded)).toEqual([folder.path, deep.path])
+  })
+
+  it('retains expanded directories, selection, and filtering across refresh', async () => {
+    const { service, gateway } = harness()
+    const instanceId = await service.open(sessionId, { path: file.path })
+    await service.toggleExpanded(instanceId, folder.path)
+    service.setFilter(instanceId, 'note')
+    vi.mocked(gateway.list).mockImplementation(async (_sessionId, path) => ({
+      path,
+      parent: '/',
+      entries: path === root ? [folder, { ...file, size: 12 }] : [file],
+    }))
+    await service.refresh(instanceId)
+    expect(service.snapshot(instanceId)).toMatchObject({
+      selectedPath: file.path,
+      filter: 'note',
+      expanded: { [folder.path]: expect.objectContaining({ path: folder.path }) },
+      directory: { entries: expect.arrayContaining([expect.objectContaining({ path: file.path, size: 12 })]) },
+    })
+  })
+
+  it('retains a failed expanded listing and exposes its refresh error', async () => {
+    const { service, gateway } = harness()
+    const instanceId = await service.open(sessionId)
+    await service.toggleExpanded(instanceId, folder.path)
+    vi.mocked(gateway.list).mockImplementation(async (_sessionId, path) => {
+      if (path === folder.path) throw new Error('folder unavailable')
+      return { path, parent: '/', entries: [folder, file] }
+    })
+    await service.refresh(instanceId)
+    expect(service.snapshot(instanceId).expanded[folder.path]).toBeDefined()
+    expect(service.snapshot(instanceId).refreshErrors[folder.path]).toBe('folder unavailable')
+  })
+
+  it('automatically refreshes current and expanded loaded directories without clearing tree state', async () => {
+    vi.useFakeTimers()
+    const { service, gateway } = harness()
+    let childEntries = [file]
+    vi.mocked(gateway.list).mockImplementation(async (_sessionId, path) => ({
+      path,
+      parent: '/',
+      entries: path === root ? [folder, file] : childEntries,
+    }))
+    const instanceId = await service.open(sessionId, { path: file.path })
+    await service.toggleExpanded(instanceId, folder.path)
+    service.setFilter(instanceId, 'external')
+    const external = {
+      ...file,
+      name: 'external.png',
+      path: '/workspace/src/external.png',
+      canonicalPath: '/workspace/src/external.png',
+      mediaType: 'image/png',
+      size: 4,
+    }
+    childEntries = [external]
+    await vi.advanceTimersByTimeAsync(50)
+    expect(service.snapshot(instanceId)).toMatchObject({
+      selectedPath: file.path,
+      filter: 'external',
+      expanded: { [folder.path]: { entries: [external] } },
+    })
+    expect(filterLoadedTree(service.snapshot(instanceId))?.has(folder.path)).toBe(true)
+
+    vi.mocked(gateway.list).mockImplementation(async (_sessionId, path) => {
+      if (path === folder.path) throw new Error('automatic listing failed')
+      return { path, parent: '/', entries: [folder, file] }
+    })
+    await vi.advanceTimersByTimeAsync(50)
+    expect(service.snapshot(instanceId).expanded[folder.path]?.entries).toEqual([external])
+    expect(service.snapshot(instanceId).refreshErrors[folder.path]).toBe('automatic listing failed')
+  })
+
+  it('polls loaded directories without overlap and cancels late completion on close', async () => {
+    vi.useFakeTimers()
+    const { service, gateway } = harness()
+    const instanceId = await service.open(sessionId)
+    await service.toggleExpanded(instanceId, folder.path)
+    service.setFilter(instanceId, 'note')
+    let active = 0
+    let maximum = 0
+    let release: (() => void) | undefined
+    vi.mocked(gateway.list).mockImplementation(async (_sessionId, path, _showHidden, signal) => {
+      active += 1
+      maximum = Math.max(maximum, active)
+      await new Promise<void>(resolve => { release = resolve })
+      active -= 1
+      signal.throwIfAborted()
+      return { path, parent: '/', entries: path === root ? [folder, { ...file, size: 9 }] : [file] }
+    })
+    const callsBeforePoll = vi.mocked(gateway.list).mock.calls.length
+    await vi.advanceTimersByTimeAsync(50)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(maximum).toBe(1)
+    expect(vi.mocked(gateway.list)).toHaveBeenCalledTimes(callsBeforePoll + 1)
+    const pollSignal = vi.mocked(gateway.list).mock.calls.at(-1)?.[3]
+    service.close(instanceId)
+    expect(pollSignal?.aborted).toBe(true)
+    release?.()
+    await vi.runAllTicks()
+    await vi.advanceTimersByTimeAsync(500)
+    expect(vi.mocked(gateway.list)).toHaveBeenCalledTimes(callsBeforePoll + 1)
   })
 
   it('ignores a superseded navigation result and aborts work on close', async () => {
     const { service, gateway } = harness()
     const instanceId = await service.open(sessionId)
     let release: (() => void) | undefined
-    vi.mocked(gateway.resolve).mockImplementationOnce(async (_sessionId, path) => {
+    let slowSignal: AbortSignal | undefined
+    vi.mocked(gateway.resolve).mockImplementationOnce(async (_sessionId, path, signal) => {
+      slowSignal = signal
       await new Promise<void>(resolve => { release = resolve })
-      return { path, kind: 'directory' }
+      return { path, name: path.split('/').at(-1) ?? path, kind: 'directory' }
     })
     const first = service.navigate(instanceId, '/slow')
     await service.navigate(instanceId, '/fast')
     release?.()
     await first
+    expect(slowSignal?.aborted).toBe(true)
     expect(service.snapshot(instanceId).address).toBe('/fast')
-    const close = vi.mocked((gateway.list)).mock.calls.at(-1)?.[3]
     service.close(instanceId)
-    expect(close?.aborted).toBe(true)
     expect(() => service.snapshot(instanceId)).toThrow('unknown tree instance')
   })
 })

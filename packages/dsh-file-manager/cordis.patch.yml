@@ -2,7 +2,10 @@
     - id: dsh-file-manager
       name: '@dsh-external/dsh-file-manager'
       config:
-        maxReadBytes: 1048576
-        pollIntervalMs: 2000
+        maxTextReadBytes: 1048576
+        maxByteReadBytes: 16777216
+        resourcePollIntervalMs: 2000
+        directoryPollIntervalMs: 2000
         openMode: preview-or-system
+        deleteMode: trash
         moveCommand: mv

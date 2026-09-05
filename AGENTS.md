@@ -4,5 +4,6 @@ This repository is an out-of-tree DeepSeek Harness plugin. Read `.intent/state/S
 
 - Build and install only against explicit `DSH_CHECKOUT`, `DSH_HOME`, and `DSH_PROFILE` values.
 - The authenticated Web Host user interface uses Node filesystem APIs with service-process permissions. It never routes user file operations through agent `ctx.fs`, sandbox, or approval policy.
-- `FileManagerFilesystem` owns directory mutations and guarded filesystem-source writes. The Client owns tree state, polling lifetime, routing to the viewer, and right-sidebar registrations.
+- `FileManagerFilesystem` owns directory mutations plus guarded text and byte writes. The Client owns loaded-tree state, non-overlapping directory and source polling lifetimes, generic resource routing, and right-sidebar registrations.
+- Recoverable trash is confirmation-free and never falls back to permanent deletion. The explicit permanent action confirms once; Host root checks and link unlinking remain authoritative.
 - Setup and uninstall inspect by default. Mutation requires an explicit flag and never restarts a service.

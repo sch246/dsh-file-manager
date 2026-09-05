@@ -8,8 +8,8 @@ import type { ChatFileOpenRequest } from '@deepseek-ai/dsh-client-ui-chat/client
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  FileViewerSourceId,
-  type FileViewerDocumentRef,
+  ResourceSourceId,
+  type ResourceDescriptor,
 } from '@dsh-external/dsh-file-viewer/client'
 import type { RightSidebarService } from '@dsh-external/dsh-right-sidebar/client'
 import fileManagerRemote from '@dsh-external/dsh-file-manager/remote'
@@ -21,18 +21,18 @@ import {
   type FileManagerGateway,
 } from './service.ts'
 import {
-  FilesystemFileViewerSource,
+  FilesystemResourceSource,
   type FilesystemSourceGateway,
 } from './source.ts'
 import { FILE_MANAGER_CSS } from './styles.ts'
 import type { FileManagerResolvedPath } from '../types.ts'
 
 export type {
-  FileManagerGateway, FileManagerSelection, FileManagerSnapshot, FileManagerViewer,
+  FileManagerGateway, FileManagerResourceOpener, FileManagerSelection, FileManagerSnapshot,
 } from './service.ts'
-export { FileManagerService, parseFileManagerSelection } from './service.ts'
+export { FileManagerService, filterLoadedTree, parseFileManagerSelection } from './service.ts'
 export type { FilesystemSourceGateway } from './source.ts'
-export { FilesystemFileViewerSource } from './source.ts'
+export { FilesystemResourceSource } from './source.ts'
 
 /** Required bootstrap service; feature dependencies wait for the generated namespace. */
 export const inject = ['remote']
@@ -46,7 +46,7 @@ function valueOf<T>(result: RemoteResult<T>): T {
 export function createFileManagerChatListener(
   mode: 'preview' | 'system' | 'preview-or-system',
   resolvePath: (sessionId: SessionId, path: string) => Promise<FileManagerResolvedPath>,
-  open: (ref: FileViewerDocumentRef) => Promise<unknown>,
+  open: (descriptor: ResourceDescriptor) => Promise<unknown>,
   openDirectory: (sessionId: SessionId, path: string) => Promise<unknown>,
 ): (request: ChatFileOpenRequest, next: () => Promise<void>) => Promise<void> {
   return async (request, next) => {
@@ -56,7 +56,18 @@ export function createFileManagerChatListener(
       if (target.kind === 'directory') {
         await openDirectory(request.sessionId, target.path)
       } else {
-        await open({ sessionId: request.sessionId, sourceId: FileViewerSourceId('filesystem'), resourceId: target.path })
+        if (target.kind !== 'file') throw new Error(`file-manager: path "${target.path}" is not a regular resource`)
+        await open({
+          ref: {
+            sessionId: request.sessionId,
+            sourceId: ResourceSourceId('filesystem'),
+            resourceId: target.path,
+          },
+          name: target.name,
+          kind: 'file',
+          ...(target.size === undefined ? {} : { size: target.size }),
+          ...(target.mediaType === undefined ? {} : { mediaType: target.mediaType }),
+        })
       }
     }
     if (mode === 'preview') return await preview()
@@ -86,8 +97,8 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
     move: async (sessionId, source, destination, signal) => {
       valueOf(await ctx.remote.fileManager.move({ sessionId, source, destination }, signal))
     },
-    trash: async (sessionId, path, confirmation, signal) => {
-      valueOf(await ctx.remote.fileManager.trash({ sessionId, path, confirmation }, signal))
+    remove: async (sessionId, path, mode, confirmed, signal) => {
+      valueOf(await ctx.remote.fileManager.remove({ sessionId, path, mode, confirmed }, signal))
     },
   }
   // Native opening is optional; its probe must not gate browser file management.
@@ -96,8 +107,14 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
     readText: async (sessionId, path, signal) => valueOf(
       await ctx.remote.fileManager.readText({ sessionId, path }, signal),
     ),
+    readBytes: async (sessionId, path, signal) => valueOf(
+      await ctx.remote.fileManager.readBytes({ sessionId, path }, signal),
+    ),
     saveText: async (sessionId, path, text, version, signal) => valueOf(
       await ctx.remote.fileManager.saveText({ sessionId, path, text, version }, signal),
+    ),
+    saveBytes: async (sessionId, path, dataBase64, version, signal) => valueOf(
+      await ctx.remote.fileManager.saveBytes({ sessionId, path, dataBase64, version }, signal),
     ),
     ...(nativeOpen
       ? {
@@ -107,13 +124,21 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
         }
       : {}),
   }
-  const source = new FilesystemFileViewerSource(sourceGateway, metadata.pollIntervalMs)
-  const viewer = ctx.fileViewer
+  const source = new FilesystemResourceSource(sourceGateway, metadata.resourcePollIntervalMs)
+  const resources = ctx.resourceWorkbench
   const sidebar = ctx.rightSidebar as RightSidebarService
   const t = ctx.locale.bind(NS)
-  const runtime = new FileManagerService(remoteGateway, sidebar, viewer, source.id, () => t('title'))
+  const runtime = new FileManagerService(
+    remoteGateway,
+    sidebar,
+    resources,
+    source.id,
+    () => t('title'),
+    metadata.directoryPollIntervalMs,
+    metadata.deleteMode,
+  )
 
-  const unregisterSource = viewer.registerSource(source)
+  const unregisterSource = resources.registerSource(source)
   const unregisterLauncher = sidebar.registerLauncher({
     id: 'file-manager',
     label: () => t('launcher'),
@@ -128,7 +153,7 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
       async (sessionId, path) => valueOf(
         await ctx.remote.fileManager.resolve({ sessionId, path }),
       ),
-      ref => viewer.open(ref),
+      descriptor => resources.open(descriptor, { preview: true }),
       (sessionId, path) => runtime.open(sessionId, { path }),
     ),
   )
@@ -147,6 +172,7 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
     inject: (_sessionId): FileManagerPanelInjected => ({
       manager: runtime,
       prompt: (message, initial) => window.prompt(message, initial),
+      confirm: message => window.confirm(message),
       t,
     }),
   }, FileManagerPanel))
@@ -165,7 +191,7 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
   const disposeRemote = await ctx.remote.$mount(fileManagerRemote)
   const runtime = ctx.inject(
-    ['slots', 'locale', 'rightSidebar', 'fileViewer', 'remote.fileManager', 'remote.session'],
+    ['slots', 'locale', 'rightSidebar', 'resourceWorkbench', 'remote.fileManager', 'remote.session'],
     registerRuntime,
   )
   try {

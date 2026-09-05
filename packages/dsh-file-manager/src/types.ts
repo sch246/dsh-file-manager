@@ -6,6 +6,9 @@ export type FileManagerRevision = string
 /** File kinds shown in the browser tree after following a symbolic link when possible. */
 export type FileManagerEntryKind = 'file' | 'directory' | 'other' | 'missing'
 
+/** Filesystem removal mode. */
+export type FileManagerDeleteMode = 'trash' | 'permanent'
+
 /** One child of a listed directory. */
 export interface FileManagerEntry {
   readonly name: string
@@ -14,6 +17,9 @@ export interface FileManagerEntry {
   readonly kind: FileManagerEntryKind
   readonly symbolicLink: boolean
   readonly hidden: boolean
+  readonly size?: number
+  readonly modifiedAtMs?: number
+  readonly mediaType?: string
 }
 
 /** Complete immediate-child listing for one canonical directory. */
@@ -25,9 +31,12 @@ export interface FileManagerDirectory {
 
 /** Host-owned browser behavior and polling configuration. */
 export interface FileManagerMetadata {
-  readonly maxReadBytes: number
-  readonly pollIntervalMs: number
+  readonly maxTextReadBytes: number
+  readonly maxByteReadBytes: number
+  readonly resourcePollIntervalMs: number
+  readonly directoryPollIntervalMs: number
   readonly openMode: 'preview' | 'system' | 'preview-or-system'
+  readonly deleteMode: FileManagerDeleteMode
 }
 
 /** Session-relative or absolute path request. */
@@ -43,6 +52,10 @@ export interface FileManagerInitialLocationRequest { readonly sessionId: Session
 export interface FileManagerResolvedPath {
   readonly path: string
   readonly kind: FileManagerEntryKind
+  readonly name: string
+  readonly size?: number
+  readonly modifiedAtMs?: number
+  readonly mediaType?: string
 }
 
 /** Directory listing request. */
@@ -55,10 +68,17 @@ export interface FileManagerTextDocument {
   readonly version: FileManagerRevision
 }
 
-/** Current exact revision, or absence after the path was removed. */
-export interface FileManagerVersionResult {
+/** Exact bounded bytes encoded for JSON transport with their opaque content revision. */
+export interface FileManagerBytesDocument {
   readonly path: string
-  readonly version?: FileManagerRevision
+  readonly dataBase64: string
+  readonly version: FileManagerRevision
+}
+
+/** Guarded byte-save request encoded for the JSON Remote transport. */
+export interface FileManagerSaveBytesRequest extends FileManagerPathRequest {
+  readonly dataBase64: string
+  readonly version: FileManagerRevision
 }
 
 /** Guarded text-save request. */
@@ -89,8 +109,11 @@ export interface FileManagerMoveRequest {
 /** Successful move result. */
 export interface FileManagerMoveResult { readonly path: string }
 
-/** Recoverable removal request with exact-path confirmation. */
-export interface FileManagerTrashRequest extends FileManagerPathRequest { readonly confirmation: string }
+/** Removal request; permanent deletion requires one confirmed browser action. */
+export interface FileManagerRemoveRequest extends FileManagerPathRequest {
+  readonly mode: FileManagerDeleteMode
+  readonly confirmed: boolean
+}
 
-/** Recoverable removal acknowledgement. */
-export interface FileManagerTrashResult { readonly trashed: true }
+/** Removal acknowledgement naming the completed mode. */
+export interface FileManagerRemoveResult { readonly mode: FileManagerDeleteMode }

@@ -10,9 +10,9 @@ import type {
   FileManagerCreateRequest, FileManagerCreateResult, FileManagerDirectory,
   FileManagerInitialLocationRequest, FileManagerListRequest, FileManagerMetadata,
   FileManagerMoveRequest, FileManagerMoveResult, FileManagerPathRequest,
-  FileManagerResolvedPath, FileManagerSaveRequest, FileManagerSaveResult,
-  FileManagerTextDocument, FileManagerTrashRequest, FileManagerTrashResult,
-  FileManagerVersionResult,
+  FileManagerRemoveRequest, FileManagerRemoveResult, FileManagerResolvedPath,
+  FileManagerSaveBytesRequest, FileManagerSaveRequest, FileManagerSaveResult,
+  FileManagerTextDocument, FileManagerBytesDocument,
 } from './types.ts'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
@@ -27,16 +27,22 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'file-manager/not-file': { readonly path: string }
     /** The bounded file is not UTF-8 text. */
     'file-manager/not-text': { readonly path: string }
-    /** The file exceeds the configured complete-text limit. */
-    'file-manager/too-large': { readonly path: string; readonly maxReadBytes: number }
+    /** The file exceeds the configured complete-resource limit. */
+    'file-manager/too-large': {
+      readonly path: string
+      readonly maxTextReadBytes: number
+      readonly maxByteReadBytes: number
+    }
+    /** A byte-write request did not contain canonical base64. */
+    'file-manager/invalid-bytes': { readonly path: string }
     /** A create or move destination already exists. */
     'file-manager/already-exists': { readonly path: string }
     /** The loaded revision is no longer current. */
     'file-manager/stale-version': { readonly path: string }
     /** Filesystem root cannot be moved or removed. */
     'file-manager/root-delete': { readonly path: string }
-    /** Recoverable deletion did not carry the exact normalized path. */
-    'file-manager/confirmation-mismatch': { readonly path: string }
+    /** Permanent deletion did not carry browser confirmation. */
+    'file-manager/confirmation-required': { readonly path: string }
     /** The operating system could not complete the filesystem operation. */
     'file-manager/unavailable': { readonly path: string }
   }
@@ -44,6 +50,13 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 
 function cancelled(cause?: unknown): RemoteError<'gateway/cancelled'> {
   return new RemoteError('gateway/cancelled', 'file manager request was cancelled', {}, { cause })
+}
+
+function decodeBase64(value: string, path: string): Uint8Array {
+  if (!/^(?:[A-Za-z\d+/]{4})*(?:[A-Za-z\d+/]{2}==|[A-Za-z\d+/]{3}=)?$/u.test(value)) {
+    throw new RemoteError('file-manager/invalid-bytes', 'byte content must be canonical base64', { path })
+  }
+  return new Uint8Array(Buffer.from(value, 'base64'))
 }
 
 /** Host Remote exposing user-authorized filesystem management without agent filesystem policy. */
@@ -102,12 +115,22 @@ export class FileManagerRemote extends TypertRemoteService {
     })
   }
 
-  /** Re-read the exact bounded revision for polling. */
-  @Remote('version')
-  async version(request: FileManagerPathRequest, signal: AbortSignal): Promise<FileManagerVersionResult> {
+  /** Read exact bounded bytes without text decoding. */
+  @Remote('readBytes')
+  async readBytes(request: FileManagerPathRequest, signal: AbortSignal): Promise<FileManagerBytesDocument> {
     return await this.guard(signal, async () => {
       const path = await this.absolute(request, signal)
-      return await this.filesystem.version(path, signal)
+      const document = await this.filesystem.readBytes(path, signal)
+      return { path: document.path, dataBase64: Buffer.from(document.bytes).toString('base64'), version: document.version }
+    })
+  }
+
+  /** Publish exact bytes after staging and checking the loaded revision. */
+  @Remote('saveBytes')
+  async saveBytes(request: FileManagerSaveBytesRequest, signal: AbortSignal): Promise<FileManagerSaveResult> {
+    return await this.guard(signal, async () => {
+      const path = await this.absolute(request, signal)
+      return await this.filesystem.saveBytes(path, decodeBase64(request.dataBase64, path), request.version, signal)
     })
   }
 
@@ -143,14 +166,17 @@ export class FileManagerRemote extends TypertRemoteService {
     })
   }
 
-  /** Move one entry to recoverable operating-system trash after exact-path confirmation. */
-  @Remote('trash')
-  async trash(request: FileManagerTrashRequest, signal: AbortSignal): Promise<FileManagerTrashResult> {
+  /** Apply the configured recoverable or confirmed permanent removal behavior. */
+  @Remote('remove')
+  async remove(request: FileManagerRemoveRequest, signal: AbortSignal): Promise<FileManagerRemoveResult> {
     return await this.guard(signal, async () => {
       signal.throwIfAborted()
       const path = await this.absolute(request, signal)
-      await this.filesystem.moveToTrash(path, request.confirmation)
-      return { trashed: true }
+      if (request.mode === 'trash' && this.configMetadata.deleteMode !== 'trash') {
+        throw new FileManagerFilesystemError('unavailable', path, 'recoverable trash is not configured')
+      }
+      await this.filesystem.remove(path, request.mode, request.confirmed)
+      return { mode: request.mode }
     })
   }
 
@@ -190,7 +216,11 @@ export class FileManagerRemote extends TypertRemoteService {
       if (signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw cancelled(error)
       if (!(error instanceof FileManagerFilesystemError)) throw error
       const details = error.code === 'too-large'
-        ? { path: error.path, maxReadBytes: this.configMetadata.maxReadBytes }
+        ? {
+            path: error.path,
+            maxTextReadBytes: this.configMetadata.maxTextReadBytes,
+            maxByteReadBytes: this.configMetadata.maxByteReadBytes,
+          }
         : { path: error.path }
       throw new RemoteError(`file-manager/${error.code}` as keyof import('@deepseek-ai/dsh-typert-protocol').RemoteErrorDetailsMap, error.message, details, { cause: error })
     }

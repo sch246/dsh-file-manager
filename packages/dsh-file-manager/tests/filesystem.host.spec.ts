@@ -26,7 +26,7 @@ beforeEach(async () => {
       trashed.push(destination)
     }
   }
-  filesystem = new FileManagerFilesystem(1024, trash, 'mv')
+  filesystem = new FileManagerFilesystem(1024, 4096, trash, 'mv')
 })
 
 afterEach(async () => {
@@ -60,6 +60,18 @@ describe('FileManagerFilesystem', () => {
     expect(hidden.entries.map(entry => entry.name)).toContain('.hidden')
   })
 
+  it('returns file size and MIME metadata without a content read', async () => {
+    const image = join(root, 'pixel.png')
+    await writeFile(image, Uint8Array.of(137, 80, 78, 71))
+    const listing = await filesystem.list(root, false, new AbortController().signal)
+    expect(listing.entries.find(entry => entry.path === image)).toMatchObject({
+      name: 'pixel.png', kind: 'file', size: 4, mediaType: 'image/png',
+    })
+    expect(await filesystem.resolveExisting(image)).toMatchObject({
+      path: image, name: 'pixel.png', kind: 'file', size: 4, mediaType: 'image/png',
+    })
+  })
+
   it('creates and moves files and folders without replacing an observed target', async () => {
     await filesystem.create(root, 'first.txt', 'file')
     await filesystem.create(root, 'folder', 'directory')
@@ -75,7 +87,7 @@ describe('FileManagerFilesystem', () => {
   })
 
   it('competing managers preserve the losing source when moving to the same destination', async () => {
-    const other = new FileManagerFilesystem(1024, async () => {}, 'mv')
+    const other = new FileManagerFilesystem(1024, 4096, async () => {}, 'mv')
     const left = join(root, 'left.txt')
     const right = join(root, 'right.txt')
     const target = join(root, 'contended.txt')
@@ -88,7 +100,7 @@ describe('FileManagerFilesystem', () => {
     expect(await readFile(winner === 'left' ? right : left, 'utf8')).toBe(winner === 'left' ? 'right' : 'left')
   })
 
-  it('requires exact confirmation, rejects root, and trashes file plus empty and non-empty directories', async () => {
+  it('rejects root and trashes files plus empty and non-empty directories without confirmation', async () => {
     const file = join(root, 'file.txt')
     const empty = join(root, 'empty')
     const full = join(root, 'full')
@@ -97,13 +109,39 @@ describe('FileManagerFilesystem', () => {
     await mkdir(full)
     await writeFile(join(full, 'child.txt'), 'child')
 
-    await expectCode(filesystem.moveToTrash(file, `${file}-wrong`), 'confirmation-mismatch')
-    await expectCode(filesystem.moveToTrash(parse(root).root, parse(root).root), 'root-delete')
-    await filesystem.moveToTrash(file, file)
-    await filesystem.moveToTrash(empty, empty)
-    await filesystem.moveToTrash(full, full)
+    await expectCode(filesystem.remove(parse(root).root, 'trash', false), 'root-delete')
+    await filesystem.remove(file, 'trash', false)
+    await filesystem.remove(empty, 'trash', false)
+    await filesystem.remove(full, 'trash', false)
     expect(trashed).toHaveLength(3)
     expect(await readFile(join(trashed[2] as string, 'child.txt'), 'utf8')).toBe('child')
+  })
+
+  it('does not fall back to permanent deletion when recoverable trash fails', async () => {
+    const file = join(root, 'trash-failure.txt')
+    await writeFile(file, 'keep')
+    const unavailableTrash = new FileManagerFilesystem(1024, 4096, async () => {
+      throw new Error('trash unavailable')
+    }, 'mv')
+    await expectCode(unavailableTrash.remove(file, 'trash', false), 'unavailable')
+    expect(await readFile(file, 'utf8')).toBe('keep')
+  })
+
+  it.skipIf(process.platform === 'win32')('requires permanent confirmation and unlinks a symlink without traversing its target', async () => {
+    const target = join(root, 'permanent-target')
+    const link = join(root, 'permanent-link')
+    const directory = join(root, 'permanent-directory')
+    await mkdir(target)
+    await mkdir(directory)
+    await writeFile(join(target, 'keep.txt'), 'keep')
+    await writeFile(join(directory, 'child.txt'), 'child')
+    await symlink(target, link)
+    await expectCode(filesystem.remove(link, 'permanent', false), 'confirmation-required')
+    await filesystem.remove(link, 'permanent', true)
+    expect(await readFile(join(target, 'keep.txt'), 'utf8')).toBe('keep')
+    await expectCode(filesystem.resolveExisting(link), 'not-found')
+    await filesystem.remove(directory, 'permanent', true)
+    await expectCode(filesystem.resolveExisting(directory), 'not-found')
   })
 
   it('canonicalizes EOLs and restores CRLF, mixed EOL, and terminal newline on save', async () => {
@@ -138,6 +176,25 @@ describe('FileManagerFilesystem', () => {
     await expectCode(filesystem.readText(nul, new AbortController().signal), 'not-text')
     await expectCode(filesystem.readText(large, new AbortController().signal), 'too-large')
     await expectCode(filesystem.readText(root, new AbortController().signal), 'not-file')
+    expect((await filesystem.readBytes(invalid, new AbortController().signal)).bytes).toEqual(Uint8Array.of(0xc3, 0x28))
+    expect((await filesystem.readBytes(nul, new AbortController().signal)).bytes).toEqual(Uint8Array.of(97, 0, 98))
+    expect((await filesystem.readBytes(large, new AbortController().signal)).bytes).toHaveLength(1025)
+  })
+
+  it('guards exact-byte publication with the same serialized stale revision check', async () => {
+    const path = join(root, 'bytes.bin')
+    await writeFile(path, Uint8Array.of(1, 2, 3))
+    const loaded = await filesystem.readBytes(path, new AbortController().signal)
+    await filesystem.saveBytes(path, Uint8Array.of(4, 0, 5), loaded.version, new AbortController().signal)
+    expect(new Uint8Array(await readFile(path))).toEqual(Uint8Array.of(4, 0, 5))
+
+    const stale = await filesystem.readBytes(path, new AbortController().signal)
+    await writeFile(path, Uint8Array.of(9))
+    await expectCode(
+      filesystem.saveBytes(path, Uint8Array.of(8), stale.version, new AbortController().signal),
+      'stale-version',
+    )
+    expect(new Uint8Array(await readFile(path))).toEqual(Uint8Array.of(9))
   })
 
   it('detects an external mutation and never clobbers its content', async () => {

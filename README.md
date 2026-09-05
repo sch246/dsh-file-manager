@@ -1,14 +1,15 @@
 # DeepSeek Harness File Manager
 
-`@dsh-external/dsh-file-manager` adds an authenticated Web file tree and the `filesystem` text source used by `@dsh-external/dsh-file-viewer`. It is an out-of-tree Bundle for DeepSeek Harness `0.1.2-alpha.2`.
+`@dsh-external/dsh-file-manager` adds an authenticated Web file tree and the `filesystem` resource source used by `@dsh-external/dsh-file-viewer`. It is an out-of-tree Bundle for DeepSeek Harness `0.1.2-alpha.2`.
 
 ## Behavior
 
 - The Files launcher opens a Session-owned `file-manager-tree` instance in `@dsh-external/dsh-right-sidebar`.
 - Session cwd is the initial directory only. The editable address accepts absolute paths anywhere the Host service process can access.
-- Directories load lazily and support hidden entries, refresh, empty file/folder creation, rename/move, and recoverable trash.
-- Directory selections from editor breadcrumbs launch or activate the tree. File rows open independent text-editor instances through `ctx.fileViewer.open()`.
-- Chat workspace file clicks use the configured `preview`, `system`, or `preview-or-system` waterfall policy.
+- Directories load lazily. Non-overlapping polling refreshes the current and expanded loaded directories while retaining expansion, selection, filter, and the mounted scroll container; failed listings remain visible with an error.
+- The loaded-tree filter matches names and relative paths, keeps matching ancestors, and never scans unloaded directories as the user types.
+- Directory selections from resource locations launch or activate the tree. A file single click requests a preview to the right of the tree; double click requests a permanent tab through `ctx.resourceWorkbench.open()`.
+- Chat workspace file clicks use the same central resource opener under the configured `preview`, `system`, or `preview-or-system` waterfall policy.
 
 This browser capability intentionally does not use `ctx.fs`: agent sandbox and approval policy do not constrain authenticated user-interface filesystem operations. Deploy the Web Host under the operating-system account whose files the user is meant to manage.
 
@@ -20,19 +21,22 @@ The Bundle inserts:
 - id: dsh-file-manager
   name: '@dsh-external/dsh-file-manager'
   config:
-    maxReadBytes: 1048576
-    pollIntervalMs: 2000
+    maxTextReadBytes: 1048576
+    maxByteReadBytes: 16777216
+    resourcePollIntervalMs: 2000
+    directoryPollIntervalMs: 2000
     openMode: preview-or-system
+    deleteMode: trash
     moveCommand: mv
 ```
 
-`maxReadBytes` is the inclusive complete UTF-8 load/save limit. `pollIntervalMs` is the delay after each completed viewer-source poll; polls never overlap and exist only while the source is subscribed. `openMode` controls Chat file links. Profile and Home patch layers replace a row's complete `config`, so preserve all fields when overriding one.
+`maxTextReadBytes` and `maxByteReadBytes` are separate inclusive complete-read and save limits. `resourcePollIntervalMs` delays text and byte source checks while subscribed; `directoryPollIntervalMs` delays loaded-directory refresh cycles. Polls schedule only after the preceding cycle completes. `openMode` controls Chat file links. `deleteMode: trash` exposes recoverable trash as the default action; `permanent` disables trash when the deployment cannot provide it. Permanent deletion remains an explicit confirmed row action in either mode. Profile and Home patch layers replace a row's complete `config`, so preserve all fields when overriding one.
 
-## Text and save guarantees
+## Resource reads and save guarantees
 
-Loads accept regular UTF-8 files without NUL bytes. CRLF and CR are canonicalized to LF for the editor. The opaque revision retains the original EOL convention, an exact pattern for mixed-EOL input, content SHA-256, canonical path, and stat fields; the editor text represents terminal-newline presence. Save restores EOLs from that revision and publishes through a same-directory staged rename.
+Metadata and directory listings use stat information and filename MIME lookup without reading file content. Byte reads accept arbitrary regular-file bytes within `maxByteReadBytes` and cross the JSON Remote as canonical base64 before the Client recreates `Uint8Array`. Text reads separately require UTF-8 without NUL bytes and stay within `maxTextReadBytes`. CRLF and CR are canonicalized to LF for the editor. The opaque revision retains the original EOL convention for text, an exact pattern for mixed-EOL input, content SHA-256, canonical path, and stat fields; editor text represents terminal-newline presence. Text save restores EOLs from that revision. Byte save preserves exact bytes. Both publish through the same same-directory staged writer.
 
-The source reports `supportsConditionalSave: true` with a bounded guarantee: writes issued by this plugin to one canonical resource are serialized, and every save rechecks the exact loaded hash/stat revision immediately before atomic replacement. Ordinary portable filesystems do not offer universal compare-and-swap against an uncooperative external writer in the interval between the last check and rename. Such a writer can still race publication.
+The source reports `supportsConditionalTextSave` and `supportsConditionalByteSave` with a bounded guarantee: writes issued by this plugin to one canonical resource are serialized, and every save rechecks the exact loaded hash/stat revision immediately before atomic replacement. Ordinary portable filesystems do not offer universal compare-and-swap against an uncooperative external writer in the interval between the last check and rename. Such a writer can still race publication.
 
 Create operations use exclusive filesystem creation. Moves use the configured GNU `moveCommand` with `--no-clobber`, `--no-copy`, and `--no-target-directory`; a late destination cannot be replaced on the current Linux filesystem's no-replace rename path. Cross-filesystem moves and hosts without these GNU options fail without a copy/delete fallback. The default command is `mv`; configure its executable path when needed. See [GNU mv](https://www.gnu.org/s/coreutils/manual/html_node/mv-invocation.html).
 
@@ -40,7 +44,7 @@ Staged saves restore permission bits. Replacing an inode can change ownership, a
 
 ## Removal safety
 
-The UI asks the user to type the complete path. The Host requires an exact normalized match, rejects filesystem root, and sends files, links, empty directories, or non-empty directories to the operating system's recoverable trash through `trash`. It never runs recursive permanent deletion.
+When recoverable trash is configured, its row action sends files, links, empty directories, or non-empty directories to the operating system trash without confirmation. Failure is visible and never invokes permanent deletion. The separate permanent action asks once, names the target and irreversibility, and does not require typing the path. The Host rejects filesystem root and unlinks a symbolic link instead of recursively traversing its target.
 
 Confirmation addresses the named path, not a retained inode. An external process can replace a path between selection and the trash operation; inspect the operating-system trash when recovering it.
 
@@ -71,7 +75,7 @@ First installation is a high-risk Bundle change. Validate it in a private Home w
 ## Integration requirements
 
 - `@dsh-external/dsh-right-sidebar/client`: launcher and `rightbar.view` multi-instance APIs.
-- `@dsh-external/dsh-file-viewer/client`: `registerSource()` plus multi-instance `open()`.
+- `@dsh-external/dsh-file-viewer/client`: `ctx.resourceWorkbench` source registration and handler-routed opening.
 - Harness Session Controller Client: optional native path opening and Chat's terminal waterfall behavior.
 
-The integrated file-viewer package omits a workspace Host Remote, filesystem source, and Chat listener; two filesystem sources or Chat listeners would create duplicate ownership.
+The integrated resource-workbench package omits a workspace Host Remote, filesystem source, and Chat listener; two filesystem sources or Chat listeners would create duplicate ownership.

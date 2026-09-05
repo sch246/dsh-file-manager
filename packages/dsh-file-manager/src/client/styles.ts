@@ -5,6 +5,7 @@ export const FILE_MANAGER_CSS = `
 .dsh-file-manager-address label{display:flex;align-items:center;gap:6px;min-width:0;flex:1}.dsh-file-manager-address input{min-width:0;flex:1;padding:5px 7px}
 .dsh-file-manager-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid color-mix(in srgb,currentColor 12%,transparent)}
 .dsh-file-manager-toolbar label{display:flex;align-items:center;gap:4px;margin-inline-start:auto}
+.dsh-file-manager-filter{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 6px;padding:6px 8px;border-bottom:1px solid color-mix(in srgb,currentColor 12%,transparent)}.dsh-file-manager-filter label{display:flex;align-items:center;gap:6px;min-width:0}.dsh-file-manager-filter input{min-width:0;flex:1;padding:5px 7px}.dsh-file-manager-filter-scope{grid-column:1/-1;color:color-mix(in srgb,currentColor 62%,transparent);font-size:12px}
 .dsh-file-manager-tree{overflow:auto;min-height:0;flex:1;padding-block:4px}.dsh-file-manager-entry{display:flex;align-items:center;gap:3px;min-height:29px;padding-inline-end:5px}
 .dsh-file-manager-entry:hover,.dsh-file-manager-entry[data-selected=true]{background:color-mix(in srgb,currentColor 8%,transparent)}
 .dsh-file-manager-expand{width:24px;min-width:24px;border:0;background:transparent;color:inherit}.dsh-file-manager-name{display:flex;align-items:center;gap:6px;min-width:0;flex:1;border:0;background:transparent;color:inherit;text-align:start}.dsh-file-manager-name span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

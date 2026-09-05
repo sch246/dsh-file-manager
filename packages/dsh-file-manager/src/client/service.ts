@@ -1,10 +1,10 @@
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
-  FileViewerClientService, FileViewerSourceId,
+  ResourceDescriptor, ResourceOpenOptions, ResourceSourceId,
 } from '@dsh-external/dsh-file-viewer/client'
 import type { RightSidebarService } from '@dsh-external/dsh-right-sidebar/client'
 import type {
-  FileManagerDirectory, FileManagerEntry, FileManagerResolvedPath,
+  FileManagerDeleteMode, FileManagerDirectory, FileManagerEntry, FileManagerResolvedPath,
 } from '../types.ts'
 
 /** Plain Client adapter over generated Remote operations. */
@@ -14,11 +14,13 @@ export interface FileManagerGateway {
   list(sessionId: SessionId, path: string, showHidden: boolean, signal: AbortSignal): Promise<FileManagerDirectory>
   create(sessionId: SessionId, parent: string, name: string, kind: 'file' | 'directory', signal: AbortSignal): Promise<void>
   move(sessionId: SessionId, source: string, destination: string, signal: AbortSignal): Promise<void>
-  trash(sessionId: SessionId, path: string, confirmation: string, signal: AbortSignal): Promise<void>
+  remove(sessionId: SessionId, path: string, mode: FileManagerDeleteMode, confirmed: boolean, signal: AbortSignal): Promise<void>
 }
 
-/** Viewer intent needed by tree file links. */
-export type FileManagerViewer = Pick<FileViewerClientService, 'open'>
+/** Generic resource-opening intent needed by tree file links. */
+export interface FileManagerResourceOpener {
+  open(descriptor: ResourceDescriptor, options?: ResourceOpenOptions): Promise<string>
+}
 
 /** Immutable state for one Session file-tree instance. */
 export interface FileManagerSnapshot {
@@ -27,8 +29,11 @@ export interface FileManagerSnapshot {
   readonly status: 'loading' | 'ready' | 'failed'
   readonly address: string
   readonly showHidden: boolean
+  readonly filter: string
+  readonly deleteMode: FileManagerDeleteMode
   readonly directory?: FileManagerDirectory
   readonly expanded: Readonly<Record<string, FileManagerDirectory>>
+  readonly refreshErrors: Readonly<Record<string, string>>
   readonly selectedPath?: string
   readonly error?: string
 }
@@ -36,8 +41,10 @@ export interface FileManagerSnapshot {
 interface RecordState {
   snapshot: FileManagerSnapshot
   readonly listeners: Set<() => void>
-  generation: number
+  resourceOpenGeneration: number
   controller?: AbortController
+  pollController?: AbortController
+  pollTimer?: ReturnType<typeof setTimeout>
 }
 
 /** Accepted external selection for the `file-manager` launcher. */
@@ -74,29 +81,110 @@ function withoutError(snapshot: FileManagerSnapshot): Omit<FileManagerSnapshot, 
   return rest
 }
 
-/** Browser owner of tree instances, operations, and viewer routing. */
+function normalizedForMatch(path: string): string {
+  return path.replaceAll('\\', '/').replace(/\/+$/u, '')
+}
+
+function relativeForMatch(root: string, path: string): string {
+  const normalizedRoot = normalizedForMatch(root)
+  const normalizedPath = normalizedForMatch(path)
+  return normalizedPath.startsWith(`${normalizedRoot}/`)
+    ? normalizedPath.slice(normalizedRoot.length + 1)
+    : normalizedPath
+}
+
+/** Return visible loaded-tree rows for a name or relative-path query, including ancestors. */
+export function filterLoadedTree(snapshot: FileManagerSnapshot): ReadonlySet<string> | undefined {
+  const query = snapshot.filter.trim().toLocaleLowerCase()
+  if (query === '' || snapshot.directory === undefined) return undefined
+  const visible = new Set<string>()
+  const visited = new Set<string>()
+  const visit = (directory: FileManagerDirectory): boolean => {
+    if (visited.has(directory.path)) return false
+    visited.add(directory.path)
+    let directoryMatches = false
+    for (const entry of directory.entries) {
+      const child = entry.kind === 'directory' ? snapshot.expanded[entry.canonicalPath] : undefined
+      const descendantMatches = child === undefined ? false : visit(child)
+      const directMatch = entry.name.toLocaleLowerCase().includes(query)
+        || relativeForMatch(snapshot.directory?.path ?? '', entry.path).toLocaleLowerCase().includes(query)
+      if (directMatch || descendantMatches) {
+        visible.add(entry.path)
+        directoryMatches = true
+      }
+    }
+    return directoryMatches
+  }
+  visit(snapshot.directory)
+  return visible
+}
+
+function retainedExpanded(
+  directory: FileManagerDirectory,
+  expanded: Readonly<Record<string, FileManagerDirectory>>,
+): Record<string, FileManagerDirectory> {
+  const retained: Record<string, FileManagerDirectory> = {}
+  const visited = new Set<string>()
+  const visit = (parent: FileManagerDirectory): void => {
+    if (visited.has(parent.path)) return
+    visited.add(parent.path)
+    for (const entry of parent.entries) {
+      const child = expanded[entry.canonicalPath]
+      if (entry.kind !== 'directory' || child === undefined) continue
+      retained[entry.canonicalPath] = child
+      visit(child)
+    }
+  }
+  visit(directory)
+  return retained
+}
+
+function forgetExpansion(
+  path: string,
+  expanded: Readonly<Record<string, FileManagerDirectory>>,
+): Record<string, FileManagerDirectory> {
+  const next = { ...expanded }
+  const forget = (current: string): void => {
+    const directory = next[current]
+    delete next[current]
+    if (directory === undefined) return
+    for (const entry of directory.entries) {
+      if (entry.kind === 'directory') forget(entry.canonicalPath)
+    }
+  }
+  forget(path)
+  return next
+}
+
+/** Browser owner of tree instances, directory polling, mutations, and resource routing. */
 export class FileManagerService {
   readonly #gateway: FileManagerGateway
   readonly #sidebar: RightSidebarService
-  readonly #viewer: FileManagerViewer
-  readonly #sourceId: FileViewerSourceId
+  readonly #resources: FileManagerResourceOpener
+  readonly #sourceId: ResourceSourceId
   readonly #title: () => string
+  readonly #directoryPollIntervalMs: number
+  readonly #deleteMode: FileManagerDeleteMode
   readonly #records = new Map<string, RecordState>()
   #disposed = false
 
-  /** @param gateway - Filesystem operations. @param sidebar - Workbench instance host. @param viewer - Text viewer intent. @param sourceId - Filesystem source id. */
+  /** @param gateway - Filesystem operations. @param sidebar - Workbench instance host. @param resources - Generic resource opener. @param sourceId - Filesystem source id. @param title - Localized tree title. @param directoryPollIntervalMs - Delay after each directory polling cycle. @param deleteMode - Configured recovery policy. */
   constructor(
     gateway: FileManagerGateway,
     sidebar: RightSidebarService,
-    viewer: FileManagerViewer,
-    sourceId: FileViewerSourceId,
+    resources: FileManagerResourceOpener,
+    sourceId: ResourceSourceId,
     title: () => string,
+    directoryPollIntervalMs: number,
+    deleteMode: FileManagerDeleteMode,
   ) {
     this.#gateway = gateway
     this.#sidebar = sidebar
-    this.#viewer = viewer
+    this.#resources = resources
     this.#sourceId = sourceId
     this.#title = title
+    this.#directoryPollIntervalMs = directoryPollIntervalMs
+    this.#deleteMode = deleteMode
   }
 
   /** Open or focus the Session tree and optionally select a path. */
@@ -108,18 +196,32 @@ export class FileManagerService {
     if (record === undefined) {
       record = {
         snapshot: {
-          instanceId, sessionId, status: 'loading', address: selection?.path ?? '', showHidden: false, expanded: Object.freeze({}),
+          instanceId,
+          sessionId,
+          status: 'loading',
+          address: selection?.path ?? '',
+          showHidden: false,
+          filter: '',
+          deleteMode: this.#deleteMode,
+          expanded: Object.freeze({}),
+          refreshErrors: Object.freeze({}),
         },
         listeners: new Set(),
-        generation: 0,
+        resourceOpenGeneration: 0,
       }
       this.#records.set(instanceId, record)
-      this.#sidebar.openInstance(sessionId, {
-        id: instanceId,
-        viewId: 'file-manager-tree',
-        title: this.#title(),
-        onClose: () => this.close(instanceId),
-      })
+      try {
+        await this.#sidebar.openInstance(sessionId, {
+          id: instanceId,
+          viewId: 'file-manager-tree',
+          title: this.#title(),
+          onClose: () => this.close(instanceId),
+        })
+      } catch (error: unknown) {
+        this.#records.delete(instanceId)
+        record.listeners.clear()
+        throw error
+      }
       await this.#navigate(record, selection?.path)
     } else {
       this.#sidebar.activateInstance(sessionId, instanceId)
@@ -143,62 +245,96 @@ export class FileManagerService {
     await this.#navigate(this.#record(instanceId), path)
   }
 
-  /** Refresh the current directory and clear stale expanded snapshots. */
+  /** Refresh every currently displayed directory without clearing expansion or selection. */
   async refresh(instanceId: string): Promise<void> {
     const record = this.#record(instanceId)
-    await this.#loadDirectory(record, record.snapshot.address, record.snapshot.selectedPath)
+    const operation = this.#begin(record)
+    await this.#refreshLoaded(record, operation.signal)
+    this.#finish(record, operation)
   }
 
-  /** Show or hide dot-prefixed entries and reload the current directory. */
+  /** Show or hide dot-prefixed entries while retaining reachable expanded directories. */
   async setShowHidden(instanceId: string, showHidden: boolean): Promise<void> {
     const record = this.#record(instanceId)
     if (record.snapshot.showHidden === showHidden) return
-    record.snapshot = { ...record.snapshot, showHidden, expanded: Object.freeze({}) }
+    record.snapshot = { ...record.snapshot, showHidden }
     this.#notify(record)
-    await this.#loadDirectory(record, record.snapshot.address, record.snapshot.selectedPath)
+    await this.refresh(instanceId)
   }
 
-  /** Expand a directory lazily, or collapse an already expanded row. */
+  /** Apply an in-memory filter over names and relative paths in the loaded tree. */
+  setFilter(instanceId: string, filter: string): void {
+    const record = this.#record(instanceId)
+    if (record.snapshot.filter === filter) return
+    record.snapshot = { ...record.snapshot, filter }
+    this.#notify(record)
+  }
+
+  /** Expand a directory lazily, or collapse it and its loaded descendants. */
   async toggleExpanded(instanceId: string, path: string): Promise<void> {
     const record = this.#record(instanceId)
     if (record.snapshot.expanded[path] !== undefined) {
-      const expanded = { ...record.snapshot.expanded }
-      delete expanded[path]
-      record.snapshot = { ...record.snapshot, expanded: Object.freeze(expanded) }
+      this.#stopPolling(record)
+      const expanded = forgetExpansion(path, record.snapshot.expanded)
+      const refreshErrors = Object.fromEntries(
+        Object.entries(record.snapshot.refreshErrors).filter(([key]) => key in expanded || key === record.snapshot.address),
+      )
+      record.snapshot = {
+        ...record.snapshot,
+        expanded: Object.freeze(expanded),
+        refreshErrors: Object.freeze(refreshErrors),
+      }
       this.#notify(record)
+      this.#startPolling(record)
       return
     }
     const operation = this.#begin(record)
     try {
-      const directory = await this.#gateway.list(record.snapshot.sessionId, path, record.snapshot.showHidden, operation.signal)
+      const directory = await this.#gateway.list(
+        record.snapshot.sessionId, path, record.snapshot.showHidden, operation.signal,
+      )
       if (!this.#current(record, operation)) return
       record.snapshot = {
         ...withoutError(record.snapshot),
-        expanded: Object.freeze({ ...record.snapshot.expanded, [directory.path]: directory }),
+        expanded: Object.freeze({ ...record.snapshot.expanded, [path]: directory }),
       }
       this.#notify(record)
     } catch (error: unknown) {
       this.#fail(record, operation, error)
+      return
     }
+    this.#finish(record, operation)
   }
 
-  /** Route a file entry to the shared viewer's filesystem source. */
-  async openFile(instanceId: string, entry: FileManagerEntry): Promise<void> {
+  /** Open one file through the central handler router beside the tree. */
+  async openFile(instanceId: string, entry: FileManagerEntry, preview = true): Promise<void> {
     const record = this.#record(instanceId)
-    if (entry.kind !== 'file') throw new Error('file-manager: only regular files can open in the text viewer')
-    try {
-      await this.#viewer.open({
+    if (entry.kind !== 'file') throw new Error('file-manager: only regular files can open as resources')
+    const generation = ++record.resourceOpenGeneration
+    const descriptor: ResourceDescriptor = {
+      ref: {
         sessionId: record.snapshot.sessionId,
         sourceId: this.#sourceId,
         resourceId: entry.canonicalPath,
+      },
+      name: entry.name,
+      kind: 'file',
+      ...(entry.size === undefined ? {} : { size: entry.size }),
+      ...(entry.mediaType === undefined ? {} : { mediaType: entry.mediaType }),
+    }
+    try {
+      await this.#resources.open(descriptor, {
+        target: { fromInstanceId: instanceId, direction: 'right' },
+        preview,
       })
     } catch (error: unknown) {
+      if (this.#records.get(instanceId) !== record || record.resourceOpenGeneration !== generation) return
       record.snapshot = { ...record.snapshot, error: messageOf(error) }
       this.#notify(record)
     }
   }
 
-  /** Create one empty child, then refresh the visible tree. */
+  /** Create one empty child, then refresh every visible listing. */
   async create(instanceId: string, name: string, kind: 'file' | 'directory'): Promise<void> {
     const record = this.#record(instanceId)
     await this.#mutate(record, signal => this.#gateway.create(
@@ -212,13 +348,15 @@ export class FileManagerService {
     await this.#mutate(record, signal => this.#gateway.move(record.snapshot.sessionId, source, destination, signal))
   }
 
-  /** Move one entry to recoverable trash using the exact typed confirmation. */
-  async trash(instanceId: string, path: string, confirmation: string): Promise<void> {
+  /** Remove one path; the Host enforces the configured mode and permanent confirmation. */
+  async remove(instanceId: string, path: string, mode: FileManagerDeleteMode, confirmed: boolean): Promise<void> {
     const record = this.#record(instanceId)
-    await this.#mutate(record, signal => this.#gateway.trash(record.snapshot.sessionId, path, confirmation, signal))
+    await this.#mutate(record, signal => this.#gateway.remove(
+      record.snapshot.sessionId, path, mode, confirmed, signal,
+    ))
   }
 
-  /** Clear the retained visible error. */
+  /** Clear the retained operation error. */
   clearError(instanceId: string): void {
     const record = this.#record(instanceId)
     if (record.snapshot.error === undefined) return
@@ -227,11 +365,12 @@ export class FileManagerService {
     this.#notify(record)
   }
 
-  /** Close and forget one tree instance after aborting its active operation. */
+  /** Close and forget one tree instance after cancelling foreground and polling reads. */
   close(instanceId: string): boolean {
     const record = this.#records.get(instanceId)
     if (record === undefined) return true
     record.controller?.abort(new Error('file manager tree closed'))
+    this.#stopPolling(record)
     this.#records.delete(instanceId)
     record.listeners.clear()
     return true
@@ -246,7 +385,12 @@ export class FileManagerService {
 
   async #navigate(record: RecordState, path?: string): Promise<void> {
     const operation = this.#begin(record)
-    record.snapshot = { ...withoutError(record.snapshot), status: 'loading', address: path ?? record.snapshot.address }
+    record.snapshot = {
+      ...withoutError(record.snapshot),
+      status: 'loading',
+      address: path ?? record.snapshot.address,
+      refreshErrors: Object.freeze({}),
+    }
     this.#notify(record)
     try {
       const resolved = path === undefined
@@ -254,41 +398,64 @@ export class FileManagerService {
         : await this.#gateway.resolve(record.snapshot.sessionId, path, operation.signal)
       if (!this.#current(record, operation)) return
       const directory = resolved.kind === 'directory' ? resolved.path : parentOf(resolved.path)
-      await this.#loadDirectory(record, directory, resolved.kind === 'file' ? resolved.path : undefined, operation)
-    } catch (error: unknown) {
-      this.#fail(record, operation, error)
-    }
-  }
-
-  async #loadDirectory(
-    record: RecordState,
-    path: string,
-    selectedPath?: string,
-    existing?: AbortController,
-  ): Promise<void> {
-    const operation = existing ?? this.#begin(record)
-    if (existing === undefined) {
-      record.snapshot = { ...withoutError(record.snapshot), status: 'loading' }
-      this.#notify(record)
-    }
-    try {
-      const directory = await this.#gateway.list(
-        record.snapshot.sessionId, path, record.snapshot.showHidden, operation.signal,
+      const listing = await this.#gateway.list(
+        record.snapshot.sessionId, directory, record.snapshot.showHidden, operation.signal,
       )
       if (!this.#current(record, operation)) return
       const { selectedPath: _selectedPath, ...base } = withoutError(record.snapshot)
       record.snapshot = {
         ...base,
         status: 'ready',
-        address: directory.path,
-        directory,
+        address: listing.path,
+        directory: listing,
         expanded: Object.freeze({}),
-        ...(selectedPath === undefined ? {} : { selectedPath }),
+        refreshErrors: Object.freeze({}),
+        ...(resolved.kind === 'file' ? { selectedPath: resolved.path } : {}),
       }
       this.#notify(record)
     } catch (error: unknown) {
       this.#fail(record, operation, error)
+      return
     }
+    this.#finish(record, operation)
+  }
+
+  async #refreshLoaded(record: RecordState, signal: AbortSignal): Promise<void> {
+    const currentDirectory = record.snapshot.directory
+    if (currentDirectory === undefined) return
+    const paths = [record.snapshot.address, ...Object.keys(record.snapshot.expanded)]
+    let directory = currentDirectory
+    let expanded = { ...record.snapshot.expanded }
+    const refreshErrors = { ...record.snapshot.refreshErrors }
+    for (const path of paths) {
+      if (signal.aborted) return
+      try {
+        const listing = await this.#gateway.list(
+          record.snapshot.sessionId, path, record.snapshot.showHidden, signal,
+        )
+        if (signal.aborted) return
+        if (path === record.snapshot.address) directory = listing
+        else if (record.snapshot.expanded[path] !== undefined) expanded[path] = listing
+        delete refreshErrors[path]
+      } catch (error: unknown) {
+        if (signal.aborted) return
+        refreshErrors[path] = messageOf(error)
+      }
+    }
+    if (signal.aborted) return
+    expanded = retainedExpanded(directory, expanded)
+    const retainedErrors = Object.fromEntries(
+      Object.entries(refreshErrors).filter(([path]) => path === directory.path || path in expanded),
+    )
+    record.snapshot = {
+      ...record.snapshot,
+      status: 'ready',
+      address: directory.path,
+      directory,
+      expanded: Object.freeze(expanded),
+      refreshErrors: Object.freeze(retainedErrors),
+    }
+    this.#notify(record)
   }
 
   async #mutate(record: RecordState, operation: (signal: AbortSignal) => Promise<void>): Promise<void> {
@@ -296,18 +463,27 @@ export class FileManagerService {
     try {
       await operation(controller.signal)
       if (!this.#current(record, controller)) return
-      await this.#loadDirectory(record, record.snapshot.address, undefined, controller)
+      await this.#refreshLoaded(record, controller.signal)
+      if (!this.#current(record, controller)) return
     } catch (error: unknown) {
       this.#fail(record, controller, error)
+      return
     }
+    this.#finish(record, controller)
   }
 
   #begin(record: RecordState): AbortController {
+    this.#stopPolling(record)
     record.controller?.abort(new Error('file manager operation superseded'))
-    record.generation += 1
     const controller = new AbortController()
     record.controller = controller
     return controller
+  }
+
+  #finish(record: RecordState, controller: AbortController): void {
+    if (!this.#current(record, controller)) return
+    delete record.controller
+    this.#startPolling(record)
   }
 
   #current(record: RecordState, controller: AbortController): boolean {
@@ -317,8 +493,40 @@ export class FileManagerService {
 
   #fail(record: RecordState, controller: AbortController, error: unknown): void {
     if (!this.#current(record, controller)) return
-    record.snapshot = { ...record.snapshot, status: record.snapshot.directory === undefined ? 'failed' : 'ready', error: messageOf(error) }
+    record.snapshot = {
+      ...record.snapshot,
+      status: record.snapshot.directory === undefined ? 'failed' : 'ready',
+      error: messageOf(error),
+    }
     this.#notify(record)
+    delete record.controller
+    if (record.snapshot.directory !== undefined) this.#startPolling(record)
+  }
+
+  #startPolling(record: RecordState): void {
+    if (this.#disposed || this.#records.get(record.snapshot.instanceId) !== record
+      || record.snapshot.directory === undefined || record.pollController !== undefined) return
+    const controller = new AbortController()
+    record.pollController = controller
+    const schedule = (): void => {
+      if (controller.signal.aborted || record.pollController !== controller) return
+      record.pollTimer = setTimeout(() => {
+        delete record.pollTimer
+        void poll()
+      }, this.#directoryPollIntervalMs)
+    }
+    const poll = async (): Promise<void> => {
+      await this.#refreshLoaded(record, controller.signal)
+      if (!controller.signal.aborted && record.pollController === controller) schedule()
+    }
+    schedule()
+  }
+
+  #stopPolling(record: RecordState): void {
+    record.pollController?.abort(new Error('file manager directory polling stopped'))
+    delete record.pollController
+    if (record.pollTimer !== undefined) clearTimeout(record.pollTimer)
+    delete record.pollTimer
   }
 
   #record(instanceId: string): RecordState {

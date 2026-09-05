@@ -1,5 +1,5 @@
 ---
-description: "Authenticated filesystem tree, guarded text source, and Chat file routing for Web profiles that compose the external file workbench."
+description: "Authenticated filesystem tree, guarded resource source, and Chat file routing for Web profiles that compose the external file workbench."
 kind: "package-bundle"
 ---
 
@@ -7,7 +7,7 @@ kind: "package-bundle"
 
 ## Summary
 
-This Bundle adds a Files launcher for browsing the filesystem available to the Web Host account. Users can navigate beyond a Session cwd, manage directory entries, and open regular text files in `@dsh-external/dsh-file-viewer`. Recoverable trash and guarded text saves protect ordinary mutation paths, while the Host service account remains the filesystem authorization owner. The repository [README](../../README.md) owns build and private-Home setup instructions.
+This Bundle adds a Files launcher for browsing the filesystem available to the Web Host account. Users can navigate beyond a Session cwd, manage directory entries, and open regular resources through `@dsh-external/dsh-file-viewer`. Recoverable trash plus guarded text and byte saves protect ordinary mutation paths, while the Host service account remains the filesystem authorization owner. The repository [README](../../README.md) owns build and private-Home setup instructions.
 
 ## Table of Contents
 
@@ -28,15 +28,20 @@ The Bundle requires the external right-sidebar and file-viewer Client packages i
 
 | Field | Bundle value | Meaning |
 |---|---:|---|
-| `maxReadBytes` | `1048576` | Inclusive complete UTF-8 read and encoded-save byte limit. |
-| `pollIntervalMs` | `2000` | Delay after each completed source poll; polls never overlap. |
+| `maxTextReadBytes` | `1048576` | Inclusive complete UTF-8 read and encoded text-save limit. |
+| `maxByteReadBytes` | `16777216` | Inclusive complete binary read and byte-save limit. |
+| `resourcePollIntervalMs` | `2000` | Delay after each completed subscribed resource poll. |
+| `directoryPollIntervalMs` | `2000` | Delay after each completed loaded-directory refresh cycle. |
 | `openMode` | `preview-or-system` | Chat file-link behavior: `preview`, `system`, or `preview-or-system`. |
+| `deleteMode` | `trash` | Whether recoverable trash is available as the default action. |
 
 Profile and Home patch layers replace the row's complete `config`. Preserve every field when overriding one.
 
 ### What you get
 
-The Files launcher opens one Session-owned tree instance. Its editable address, hidden-entry toggle, lazy directories, refresh, empty file/folder creation, move/rename, and recoverable trash actions use Host process permissions. File rows open the `filesystem` viewer source; viewer location segments route back to the tree through `selectorId: 'file-manager'`.
+The Files launcher opens one Session-owned tree instance. Its editable address, hidden-entry toggle, lazy directories, automatic and manual refresh, loaded-tree filter, empty file/folder creation, move/rename, trash, and permanent-delete actions use Host process permissions. File rows send `filesystem` descriptors to the central resource opener; single click previews in a stable group right of the tree and double click requests a permanent tab. Resource location segments route back to the tree through `selectorId: 'file-manager'`.
+
+Automatic refresh polls only the current and expanded loaded directories, schedules after the prior cycle, and retains the mounted tree, reachable expansion, selection, and filter. A failed directory keeps its last successful listing and displays the failure. Filtering matches loaded names and relative paths in memory, retains ancestors, and never recursively reads unloaded directories.
 
 -----
 
@@ -48,16 +53,18 @@ The Bundle keeps filesystem authority and all registrations in one lifecycle so 
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The `fileManager` Typert namespace uses Node filesystem operations rather than agent `ctx.fs`. Session cwd resolves relative requests and the initial location but does not contain absolute navigation. Symlink navigation and reads publish canonical resource identities; move and trash act on the visible link path.
+The `fileManager` Typert namespace uses Node filesystem operations rather than agent `ctx.fs`. Session cwd resolves relative requests and the initial location but does not contain absolute navigation. Symlink navigation and reads publish canonical resource identities; move and deletion act on the visible link path.
 
-The `filesystem` source canonicalizes line endings for the editor and restores the loaded convention during save. Per-resource plugin writes serialize, stage in the target directory, compare content SHA-256 and stat fields immediately before rename, and then replace atomically. Permission bits are restored, but inode replacement does not promise ownership, access-control entry, extended-attribute, or other filesystem-specific metadata preservation. Source polling starts only for a viewer subscription, schedules after the preceding read completes, and aborts on disposal.
+The `filesystem` source exposes metadata, exact bytes, and canonical LF text independently. Only text rejects NUL bytes or malformed UTF-8 and restores the loaded line-ending convention during save. Per-resource text and byte writes share one serialized staged publisher, compare content SHA-256 and stat fields immediately before rename, and then replace atomically. Permission bits are restored, but inode replacement does not promise ownership, access-control entry, extended-attribute, or other filesystem-specific metadata preservation. Source polling starts only for a resource subscription, schedules after the preceding read completes, and aborts on disposal.
+
+Trash requires no confirmation and never falls back to permanent deletion. The permanent row action asks once without typed-path confirmation. Host checks reject filesystem root, and permanent deletion unlinks a symbolic link instead of traversing its target.
 
 | Source | Responsibility |
 |---|---|
 | [`cordis.patch.yml`](cordis.patch.yml) | Bundle row and configurable deployment values. |
-| [`src/filesystem.ts`](src/filesystem.ts) | Node filesystem reads, mutations, revisions, staging, and trash adapter. |
+| [`src/filesystem.ts`](src/filesystem.ts) | Node metadata, text and byte reads, mutations, revisions, shared staging, and deletion. |
 | [`src/remote.ts`](src/remote.ts) | Session-relative resolution and typed Remote failures. |
-| [`src/client/`](src/client/) | Tree state/UI, viewer source, polling, sidebar, and Chat registrations. |
+| [`src/client/`](src/client/) | Tree state/UI, resource source, polling, sidebar, and Chat registrations. |
 
 </details>
 
@@ -79,9 +86,9 @@ This Bundle registers no model-facing tool, prompt section, or Session event. It
 <a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
 
-- Text operations require complete bounded UTF-8 regular files without NUL bytes; binary and streaming editing are unavailable.
+- Text operations require complete bounded UTF-8 regular files without NUL bytes. Byte handlers receive complete bounded content; streaming remains unavailable.
 - Portable filesystem APIs cannot prevent an external writer from racing between the last revision check and rename, and cannot guarantee a no-replace move against an external destination race. The plugin never intentionally overwrites an observed destination.
-- Polling observes a source change only after a configured interval and complete bounded read.
+- Polling observes a source or directory change only after a configured interval and complete bounded read or listing.
 - A composed private-Home browser run owns verification of the sibling Bundle graph and visible workflow.
 
 <a id="dev-note"></a>

@@ -5,8 +5,10 @@ export const NS = 'file-manager'
 export type FileManagerLocaleKey =
   | 'title' | 'launcher' | 'address' | 'go' | 'refresh' | 'showHidden' | 'hideHidden'
   | 'newFile' | 'newFolder' | 'newFilePrompt' | 'newFolderPrompt' | 'renameMove'
-  | 'movePrompt' | 'delete' | 'deletePrompt' | 'deleteMismatch' | 'clearError'
+  | 'movePrompt' | 'trash' | 'permanentDelete' | 'permanentDeletePrompt' | 'clearError'
   | 'loading' | 'empty' | 'expand' | 'collapse' | 'openDirectory' | 'openFile'
+  | 'filter' | 'filterPlaceholder' | 'filterScope' | 'clearFilter' | 'noFilterResults'
+  | 'refreshFailed'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -29,16 +31,22 @@ export const en: Record<FileManagerLocaleKey, string> = {
   newFolderPrompt: 'Name of the new folder',
   renameMove: 'Rename or move',
   movePrompt: 'Enter the complete destination path',
-  delete: 'Move to trash',
-  deletePrompt: 'Type this exact path to move it to recoverable trash:',
-  deleteMismatch: 'The typed path did not match. Nothing was removed.',
+  trash: 'Move to trash',
+  permanentDelete: 'Delete permanently',
+  permanentDeletePrompt: 'Permanently delete this item? This cannot be undone.',
   clearError: 'Dismiss error',
   loading: 'Loading files…',
   empty: 'This directory is empty.',
   expand: 'Expand folder',
   collapse: 'Collapse folder',
   openDirectory: 'Open folder',
-  openFile: 'Open text file',
+  openFile: 'Open resource',
+  filter: 'Filter',
+  filterPlaceholder: 'Name or relative path',
+  filterScope: 'Loaded folders only',
+  clearFilter: 'Clear filter',
+  noFilterResults: 'No loaded items match this filter.',
+  refreshFailed: 'Automatic refresh failed',
 }
 
 export const zh: Record<FileManagerLocaleKey, string> = {
@@ -55,14 +63,20 @@ export const zh: Record<FileManagerLocaleKey, string> = {
   newFolderPrompt: '新文件夹名称',
   renameMove: '重命名或移动',
   movePrompt: '请输入完整目标路径',
-  delete: '移到回收站',
-  deletePrompt: '输入以下完整路径以移到可恢复的回收站：',
-  deleteMismatch: '输入路径不匹配，未删除任何内容。',
+  trash: '移到回收站',
+  permanentDelete: '永久删除',
+  permanentDeletePrompt: '要永久删除此项目吗？此操作无法撤销。',
   clearError: '关闭错误',
   loading: '正在加载文件…',
   empty: '此文件夹为空。',
   expand: '展开文件夹',
   collapse: '折叠文件夹',
   openDirectory: '打开文件夹',
-  openFile: '打开文本文件',
+  openFile: '打开资源',
+  filter: '筛选',
+  filterPlaceholder: '名称或相对路径',
+  filterScope: '仅已加载文件夹',
+  clearFilter: '清除筛选',
+  noFilterResults: '已加载项目中没有匹配项。',
+  refreshFailed: '自动刷新失败',
 }

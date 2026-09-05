@@ -1,14 +1,14 @@
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createFileManagerChatListener } from '../src/client/index.ts'
-import { FilesystemFileViewerSource, type FilesystemSourceGateway } from '../src/client/source.ts'
+import { FilesystemResourceSource, type FilesystemSourceGateway } from '../src/client/source.ts'
 
 const sessionId = 'session-1' as SessionId
 const ref = { sessionId, sourceId: 'filesystem' as never, resourceId: '/tmp/file.txt' }
 
 afterEach(() => { vi.useRealTimers() })
 
-describe('filesystem viewer source', () => {
+describe('filesystem resource source', () => {
   it('loads location metadata, saves conditionally, and polls without overlap until disposed', async () => {
     vi.useFakeTimers()
     let version = 'v1'
@@ -24,20 +24,31 @@ describe('filesystem viewer source', () => {
         active -= 1
         return { path, text: `text-${version}`, version }
       }),
+      readBytes: vi.fn(async (_sessionId, path) => ({ path, dataBase64: 'AP8=', version: 'bytes-v1' })),
       saveText: vi.fn(async () => ({ version: 'v2' })),
+      saveBytes: vi.fn(async () => ({ version: 'bytes-v2' })),
     }
-    const source = new FilesystemFileViewerSource(gateway, 50)
-    const loaded = await source.load(ref, new AbortController().signal)
+    const source = new FilesystemResourceSource(gateway, 50)
+    expect(source.supportsConditionalTextSave).toBe(true)
+    expect(source.supportsConditionalByteSave).toBe(true)
+    const loaded = await source.readText(ref, new AbortController().signal)
     expect(loaded).toMatchObject({
-      text: 'text-v1', version: 'v1', title: 'file.txt',
-      location: { selectorId: 'file-manager', segments: expect.any(Array) },
+      text: 'text-v1', version: 'v1', descriptor: {
+        name: 'file.txt', location: { selectorId: 'file-manager', segments: expect.any(Array) },
+      },
     })
-    await expect(source.save(ref, 'next', 'v1', new AbortController().signal)).resolves.toEqual({ version: 'v2' })
+    await expect(source.readBytes(ref, new AbortController().signal)).resolves.toMatchObject({
+      bytes: Uint8Array.of(0, 255), version: 'bytes-v1',
+    })
+    await expect(source.saveBytes(ref, Uint8Array.of(255, 0), 'bytes-v1', new AbortController().signal))
+      .resolves.toEqual({ version: 'bytes-v2' })
+    expect(gateway.saveBytes).toHaveBeenCalledWith(sessionId, ref.resourceId, '/wA=', 'bytes-v1', expect.any(AbortSignal))
+    await expect(source.saveText(ref, 'next', 'v1', new AbortController().signal)).resolves.toEqual({ version: 'v2' })
 
     version = 'v3'
     release = () => {}
     const events: unknown[] = []
-    const dispose = source.watch(ref, event => { events.push(event) })
+    const dispose = source.watchText(ref, event => { events.push(event) })
     await vi.advanceTimersByTimeAsync(50)
     await vi.advanceTimersByTimeAsync(500)
     expect(maximum).toBe(1)
@@ -59,11 +70,13 @@ describe('filesystem viewer source', () => {
   it('exposes external opening only when the gateway supplies it', async () => {
     const base: FilesystemSourceGateway = {
       readText: async (_sessionId, path) => ({ path, text: '', version: 'v1' }),
+      readBytes: async (_sessionId, path) => ({ path, dataBase64: '', version: 'v1' }),
       saveText: async () => ({ version: 'v2' }),
+      saveBytes: async () => ({ version: 'v2' }),
     }
-    expect(new FilesystemFileViewerSource(base, 10).openExternal).toBeUndefined()
+    expect(new FilesystemResourceSource(base, 10).openExternal).toBeUndefined()
     const openExternal = vi.fn(async () => {})
-    const source = new FilesystemFileViewerSource({ ...base, openExternal }, 10)
+    const source = new FilesystemResourceSource({ ...base, openExternal }, 10)
     await source.openExternal?.(ref, new AbortController().signal)
     expect(openExternal).toHaveBeenCalledWith(sessionId, ref.resourceId, expect.any(AbortSignal))
   })
@@ -72,12 +85,17 @@ describe('filesystem viewer source', () => {
 describe('Chat file routing', () => {
   it('handles preview, delegates system, and falls back only after preview failure', async () => {
     const request = { sessionId, path: 'relative.txt' }
-    const resolvePath = vi.fn(async () => ({ path: '/workspace/relative.txt', kind: 'file' as const }))
+    const resolvePath = vi.fn(async () => ({
+      path: '/workspace/relative.txt', name: 'relative.txt', kind: 'file' as const, mediaType: 'text/plain', size: 8,
+    }))
     const open = vi.fn(async () => 'editor-1')
     const openDirectory = vi.fn(async () => 'tree-1')
     const next = vi.fn(async () => {})
     await createFileManagerChatListener('preview', resolvePath, open, openDirectory)(request, next)
-    expect(open).toHaveBeenCalledWith(expect.objectContaining({ resourceId: '/workspace/relative.txt' }))
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({
+      ref: expect.objectContaining({ resourceId: '/workspace/relative.txt', sourceId: 'filesystem' }),
+      name: 'relative.txt', mediaType: 'text/plain', size: 8,
+    }))
     expect(next).not.toHaveBeenCalled()
 
     await createFileManagerChatListener('system', resolvePath, open, openDirectory)(request, next)
@@ -92,7 +110,7 @@ describe('Chat file routing', () => {
     const open = vi.fn()
     const openDirectory = vi.fn(async () => 'tree-1')
     const next = vi.fn()
-    await createFileManagerChatListener('preview', async () => ({ path: '/workspace', kind: 'directory' }), open, openDirectory)(
+    await createFileManagerChatListener('preview', async () => ({ path: '/workspace', name: 'workspace', kind: 'directory' }), open, openDirectory)(
       { sessionId, path: '/workspace' }, next,
     )
     expect(openDirectory).toHaveBeenCalledWith(sessionId, '/workspace')

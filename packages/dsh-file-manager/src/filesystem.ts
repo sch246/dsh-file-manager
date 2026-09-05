@@ -3,12 +3,14 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { Stats } from 'node:fs'
 import {
-  lstat, mkdir, open, readdir, realpath, rename, rm, stat,
+  lstat, mkdir, open, readdir, realpath, rename, rm, stat, unlink,
 } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, normalize, parse, resolve, sep } from 'node:path'
+import { lookup as lookupMediaType } from 'mime-types'
 import type {
-  FileManagerCreateResult, FileManagerDirectory, FileManagerEntry, FileManagerEntryKind,
-  FileManagerRevision, FileManagerSaveResult, FileManagerTextDocument, FileManagerVersionResult,
+  FileManagerCreateResult, FileManagerDeleteMode, FileManagerDirectory,
+  FileManagerEntry, FileManagerEntryKind, FileManagerResolvedPath, FileManagerRevision,
+  FileManagerSaveResult, FileManagerTextDocument,
 } from './types.ts'
 
 /** Stable filesystem-manager failures translated by the Host Remote. */
@@ -22,7 +24,7 @@ export type FileManagerFilesystemErrorCode =
   | 'already-exists'
   | 'stale-version'
   | 'root-delete'
-  | 'confirmation-mismatch'
+  | 'confirmation-required'
   | 'unavailable'
 
 /** Filesystem failure with a stable category and addressed path. */
@@ -65,6 +67,13 @@ interface ReadBytesResult {
 
 /** Recoverable-removal adapter used by production and fixture-local tests. */
 export type FileManagerTrash = (paths: readonly string[]) => Promise<void>
+
+/** Exact bytes returned inside the Host before JSON transport encoding. */
+export interface FileManagerByteContent {
+  readonly path: string
+  readonly bytes: Uint8Array
+  readonly version: FileManagerRevision
+}
 
 const runFile = promisify(execFile)
 
@@ -171,28 +180,48 @@ function entryKind(value: Stats): FileManagerEntryKind {
   return 'other'
 }
 
+function mediaTypeOf(path: string, kind: FileManagerEntryKind): string | undefined {
+  if (kind !== 'file') return undefined
+  const value = lookupMediaType(path)
+  return value === false ? undefined : value
+}
+
+function resolvedMetadata(path: string, info: Stats): FileManagerResolvedPath {
+  const kind = entryKind(info)
+  const mediaType = mediaTypeOf(path, kind)
+  return {
+    path,
+    name: basename(path) || path,
+    kind,
+    ...(kind === 'file' ? { size: info.size, modifiedAtMs: info.mtimeMs } : {}),
+    ...(mediaType === undefined ? {} : { mediaType }),
+  }
+}
+
 /** Node filesystem owner for authenticated browser file-management operations. */
 export class FileManagerFilesystem {
-  readonly #maxReadBytes: number
+  readonly #maxTextReadBytes: number
+  readonly #maxByteReadBytes: number
   readonly #trash: FileManagerTrash
   readonly #moveCommand: string
   readonly #writes = new Map<string, Promise<void>>()
   #mutationTail: Promise<void> = Promise.resolve()
 
-  /** @param maxReadBytes - Inclusive complete-read and save byte bound. @param trash - Recoverable-removal adapter. @param moveCommand - GNU mv executable supporting --no-copy and --no-clobber. */
-  constructor(maxReadBytes: number, trash: FileManagerTrash, moveCommand: string) {
-    this.#maxReadBytes = maxReadBytes
+  /** @param maxTextReadBytes - Inclusive text read/save bound. @param maxByteReadBytes - Inclusive binary read/save bound. @param trash - Recoverable-removal adapter. @param moveCommand - GNU mv executable supporting --no-copy and --no-clobber. */
+  constructor(maxTextReadBytes: number, maxByteReadBytes: number, trash: FileManagerTrash, moveCommand: string) {
+    this.#maxTextReadBytes = maxTextReadBytes
+    this.#maxByteReadBytes = maxByteReadBytes
     this.#trash = trash
     this.#moveCommand = moveCommand
   }
 
-  /** Follow one existing path to its stable canonical identity and kind. */
-  async resolveExisting(path: string): Promise<{ path: string; kind: FileManagerEntryKind }> {
+  /** Follow one existing path and return metadata without reading file content. */
+  async resolveExisting(path: string): Promise<FileManagerResolvedPath> {
     const input = normalizedAbsolute(path)
     try {
       const canonical = await realpath(input)
       const info = await stat(canonical)
-      return { path: canonical, kind: entryKind(info) }
+      return resolvedMetadata(canonical, info)
     } catch (error: unknown) {
       throw mapNodeError(error, input)
     }
@@ -216,13 +245,17 @@ export class FileManagerFilesystem {
           try {
             const canonicalPath = await realpath(child)
             const info = await stat(canonicalPath)
+            const kind = entryKind(info)
+            const mediaType = mediaTypeOf(child, kind)
             return {
               name: row.name,
               path: child,
               canonicalPath,
-              kind: entryKind(info),
+              kind,
               symbolicLink,
               hidden: row.name.startsWith('.'),
+              ...(kind === 'file' ? { size: info.size, modifiedAtMs: info.mtimeMs } : {}),
+              ...(mediaType === undefined ? {} : { mediaType }),
             } satisfies FileManagerEntry
           } catch (error: unknown) {
             const code = typeof error === 'object' && error !== null && 'code' in error
@@ -254,7 +287,7 @@ export class FileManagerFilesystem {
 
   /** Load a complete UTF-8 regular file as canonical LF text and an exact opaque revision. */
   async readText(path: string, signal: AbortSignal): Promise<FileManagerTextDocument> {
-    const result = await this.#readBytes(path, signal)
+    const result = await this.#readFileBytes(path, signal, this.#maxTextReadBytes)
     let decoded: string
     if (result.bytes.includes(0)) {
       throw new FileManagerFilesystemError('not-text', result.path, `path "${result.path}" contains NUL bytes`)
@@ -269,17 +302,10 @@ export class FileManagerFilesystem {
     return { path: result.path, text: canonicalText(decoded), version: encodeRevision(payload) }
   }
 
-  /** Read the exact bounded content revision used by source polling. */
-  async version(path: string, signal: AbortSignal): Promise<FileManagerVersionResult> {
-    const input = normalizedAbsolute(path)
-    try {
-      const result = await this.#readBytes(input, signal)
-      return { path: result.path, version: encodeRevision(result.payload) }
-    } catch (error: unknown) {
-      const mapped = mapNodeError(error, input)
-      if (mapped.code === 'not-found') return { path: input }
-      throw mapped
-    }
+  /** Read complete bounded bytes without applying text validation or normalization. */
+  async readBytes(path: string, signal: AbortSignal): Promise<FileManagerByteContent> {
+    const result = await this.#readFileBytes(path, signal, this.#maxByteReadBytes)
+    return { path: result.path, bytes: new Uint8Array(result.bytes), version: encodeRevision(result.payload) }
   }
 
   /** Stage and atomically replace text after the last exact revision check. */
@@ -289,6 +315,44 @@ export class FileManagerFilesystem {
     version: FileManagerRevision,
     signal: AbortSignal,
   ): Promise<FileManagerSaveResult> {
+    return await this.#publish(
+      path,
+      version,
+      signal,
+      this.#maxTextReadBytes,
+      expected => new TextEncoder().encode(restoreEol(text, expected)),
+      saved => {
+        const savedText = new TextDecoder('utf-8', { fatal: true }).decode(saved.bytes)
+        return { ...saved.payload, ...eolMetadata(savedText) }
+      },
+    )
+  }
+
+  /** Stage and atomically replace exact bytes after the last revision check. */
+  async saveBytes(
+    path: string,
+    bytes: Uint8Array,
+    version: FileManagerRevision,
+    signal: AbortSignal,
+  ): Promise<FileManagerSaveResult> {
+    return await this.#publish(
+      path,
+      version,
+      signal,
+      this.#maxByteReadBytes,
+      () => bytes,
+      saved => saved.payload,
+    )
+  }
+
+  async #publish(
+    path: string,
+    version: FileManagerRevision,
+    signal: AbortSignal,
+    maxBytes: number,
+    bytesOf: (expected: RevisionPayload) => Uint8Array,
+    revisionOf: (saved: ReadBytesResult) => RevisionPayload,
+  ): Promise<FileManagerSaveResult> {
     const canonical = (await this.resolveExisting(path)).path
     return await this.#exclusiveWrite(canonical, async () => {
       signal.throwIfAborted()
@@ -296,9 +360,9 @@ export class FileManagerFilesystem {
       if (expected.path !== canonical) {
         throw new FileManagerFilesystemError('stale-version', canonical, `filesystem revision belongs to "${expected.path}"`)
       }
-      const bytes = new TextEncoder().encode(restoreEol(text, expected))
-      if (bytes.byteLength > this.#maxReadBytes) {
-        throw new FileManagerFilesystemError('too-large', canonical, `path "${canonical}" exceeds the configured text limit`)
+      const bytes = bytesOf(expected)
+      if (bytes.byteLength > maxBytes) {
+        throw new FileManagerFilesystemError('too-large', canonical, `path "${canonical}" exceeds the configured resource limit`)
       }
       const stage = join(dirname(canonical), `.${basename(canonical)}.dsh-stage-${randomBytes(12).toString('hex')}`)
       let staged = false
@@ -312,7 +376,7 @@ export class FileManagerFilesystem {
         } finally {
           await handle.close()
         }
-        const current = await this.#readBytes(canonical, signal)
+        const current = await this.#readFileBytes(canonical, signal, maxBytes)
         if (!sameStat(current.payload.stat, expected.stat) || current.payload.sha256 !== expected.sha256) {
           throw new FileManagerFilesystemError('stale-version', canonical, `path "${canonical}" changed after it was loaded`)
         }
@@ -320,9 +384,8 @@ export class FileManagerFilesystem {
         await rename(stage, canonical)
         staged = false
         // Publication is terminal: cancellation after rename must not report that the save did not happen.
-        const saved = await this.#readBytes(canonical, new AbortController().signal)
-        const savedText = new TextDecoder('utf-8', { fatal: true }).decode(saved.bytes)
-        return { version: encodeRevision({ ...saved.payload, ...eolMetadata(savedText) }) }
+        const saved = await this.#readFileBytes(canonical, new AbortController().signal, maxBytes)
+        return { version: encodeRevision(revisionOf(saved)) }
       } catch (error: unknown) {
         throw mapNodeError(error, canonical)
       } finally {
@@ -389,26 +452,31 @@ export class FileManagerFilesystem {
     })
   }
 
-  /** Move one file, link, or directory to the operating system's recoverable trash. */
-  async moveToTrash(path: string, confirmation: string): Promise<void> {
+  /** Remove one named path according to the configured recovery policy. */
+  async remove(path: string, mode: FileManagerDeleteMode, confirmed: boolean): Promise<void> {
     const target = normalizedAbsolute(path)
     if (target === parse(target).root) {
       throw new FileManagerFilesystemError('root-delete', target, 'filesystem root cannot be removed')
     }
-    if (confirmation !== target) {
-      throw new FileManagerFilesystemError('confirmation-mismatch', target, 'delete confirmation must exactly match the normalized path')
+    if (mode === 'permanent' && !confirmed) {
+      throw new FileManagerFilesystemError('confirmation-required', target, 'permanent deletion requires confirmation')
     }
     await this.#exclusiveMutation(async () => {
       try {
-        await lstat(target)
-        await this.#trash([target])
+        const info = await lstat(target)
+        if (mode === 'trash') {
+          await this.#trash([target])
+          return
+        }
+        if (info.isSymbolicLink() || !info.isDirectory()) await unlink(target)
+        else await rm(target, { recursive: true })
       } catch (error: unknown) {
         throw mapNodeError(error, target)
       }
     })
   }
 
-  async #readBytes(path: string, signal: AbortSignal): Promise<ReadBytesResult> {
+  async #readFileBytes(path: string, signal: AbortSignal, maxBytes: number): Promise<ReadBytesResult> {
     signal.throwIfAborted()
     const input = normalizedAbsolute(path)
     try {
@@ -419,8 +487,8 @@ export class FileManagerFilesystem {
         if (!beforeValue.isFile()) {
           throw new FileManagerFilesystemError('not-file', canonical, `path "${canonical}" is not a regular file`)
         }
-        if (beforeValue.size > this.#maxReadBytes) {
-          throw new FileManagerFilesystemError('too-large', canonical, `path "${canonical}" exceeds the configured text limit`)
+        if (beforeValue.size > maxBytes) {
+          throw new FileManagerFilesystemError('too-large', canonical, `path "${canonical}" exceeds the configured resource limit`)
         }
         signal.throwIfAborted()
         const bytes = await handle.readFile()
