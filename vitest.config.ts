@@ -1,0 +1,13 @@
+import { fileURLToPath } from 'node:url'
+import { defineConfig } from 'vitest/config'
+
+const fixture = (path: string): string => fileURLToPath(new URL(path, import.meta.url))
+
+export default defineConfig({
+  resolve: {
+    alias: {
+      '@dsh-external/dsh-file-manager/remote': fixture('./packages/dsh-file-manager/tests/fixtures/file-manager-remote.ts'),
+      '@dsh-external/dsh-file-viewer/client': fixture('../dsh-file-viewer-ui/packages/dsh-file-viewer/src/client/service.ts'),
+    },
+  },
+})

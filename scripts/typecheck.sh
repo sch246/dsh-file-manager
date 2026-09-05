@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CHECKOUT="${DSH_CHECKOUT:?typecheck: set DSH_CHECKOUT to an explicit DeepSeek Harness checkout}"
+
+if [ ! -f "$CHECKOUT/package.json" ]; then
+  echo "typecheck: invalid DSH_CHECKOUT: $CHECKOUT" >&2
+  exit 1
+fi
+if [ -e "$ROOT/harness" ] && [ ! -L "$ROOT/harness" ]; then
+  echo "typecheck: refusing to replace non-symlink $ROOT/harness" >&2
+  exit 1
+fi
+rm -f "$ROOT/harness"
+ln -s "$CHECKOUT" "$ROOT/harness"
+
+cd "$ROOT"
+pnpm exec tsc -p packages/dsh-file-manager/tsconfig.host.json --pretty false --noEmit
+node "$ROOT/scripts/generate-typert-host.mjs"
+pnpm exec tsc -p packages/dsh-file-manager/tsconfig.client.json --pretty false --noEmit

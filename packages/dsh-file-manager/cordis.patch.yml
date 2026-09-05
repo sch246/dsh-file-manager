@@ -1,0 +1,7 @@
+- insert:
+    - id: dsh-file-manager
+      name: '@dsh-external/dsh-file-manager'
+      config:
+        maxReadBytes: 1048576
+        pollIntervalMs: 2000
+        openMode: preview-or-system
