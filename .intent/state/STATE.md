@@ -1,6 +1,6 @@
 # File manager current intended state
 
-Status: candidate source revision under [the resource-links cutover log](../logs/2026-09-05-resource-links-cutover.md), with [private browser observations](../logs/2026-09-05-private-repair-acceptance.md). The preceding local installation is recorded in [the deployment log](../logs/2026-09-05-resource-workbench-deployment.md); this candidate is not activated in the managed service, user-visually accepted, or represented by an accepted realization lock.
+Status: source revision under [the resource-links cutover log](../logs/2026-09-05-resource-links-cutover.md), with [private browser observations](../logs/2026-09-05-private-repair-acceptance.md) and [authorized local activation](../logs/2026-09-05-repair-deployment.md). This revision is installed and activated in the managed service, not user-visually accepted or represented by an accepted realization lock. The [preceding deployment log](../logs/2026-09-05-resource-workbench-deployment.md) remains historical evidence.
 
 ## Intent
 
