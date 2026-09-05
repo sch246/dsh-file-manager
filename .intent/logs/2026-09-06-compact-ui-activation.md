@@ -1,0 +1,5 @@
+# Compact manager activation
+
+Source `0732a57f818a283ebc39de681d18399068aa1a9e` was installed and activated on 2026-09-06 following explicit user authorization. Existing focused verification was not repeated after the user requested minimal testing. The private browser loaded the compact tree without a default filter row, and the generated Remote returned `/root/.local/share/Trash/files` for home-trash browsing.
+
+The managed package dependencies were installed offline with the frozen lockfile and scripts disabled. The owned build completed against the explicit managed Harness checkout. The deployed Client SHA-256 `925d5af757a8a2f220d4d81e2fdac7238ee990cf3945e6d6e207b052daaef5b7` matches the private candidate. Profile dependencies, symlinks, lockfile and Bundle composition remain consistent. `dsh-web` started with MainPID `1973273`, zero automatic restarts and HTTP 200; fresh browser loading reported no page or console errors. No user filesystem mutation was exercised. Touch, extreme-width layouts and complete semantic acceptance were not rechecked; the home-trash view still excludes other volumes and restoration.

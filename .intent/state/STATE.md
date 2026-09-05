@@ -1,6 +1,6 @@
 # File manager current intended state
 
-Status: candidate source revision under [the compact manager log](../logs/2026-09-06-compact-manager.md). This candidate is not installed or activated in the managed service and establishes no accepted realization lock or user acceptance. [Earlier activation](../logs/2026-09-05-repair-deployment.md) remains historical evidence.
+Status: compact source installed and activated under [the deployment log](../logs/2026-09-06-compact-ui-activation.md). This establishes no accepted realization lock or user visual acceptance. [The compact manager log](../logs/2026-09-06-compact-manager.md) records implementation evidence.
 
 ## Intent
 
