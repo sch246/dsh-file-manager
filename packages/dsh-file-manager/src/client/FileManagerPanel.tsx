@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from 'react'
 import type { FileManagerDeleteMode, FileManagerDirectory, FileManagerEntry } from '../types.ts'
 import type { FileManagerLocaleKey } from './locales.ts'
-import { filterLoadedTree, type FileManagerService, type FileManagerSnapshot } from './service.ts'
+import {
+  filterLoadedTree, isInsideTrash, isTrashRecord,
+  type FileManagerService, type FileManagerSnapshot,
+} from './service.ts'
 
 /** Actions and observable state injected for one tree instance. */
 export interface FileManagerPanelInjected {
@@ -29,6 +32,7 @@ interface FileManagerPanelActions extends FileManagerPanelInjected {
   create(name: string, kind: 'file' | 'directory'): void
   move(source: string, destination: string): void
   remove(path: string, mode: FileManagerDeleteMode, confirmed: boolean): void
+  restore(path: string): void
   clearError(): void
 }
 
@@ -40,6 +44,15 @@ export function confirmFileManagerRemoval(
   permanentMessage: string,
 ): boolean {
   return mode === 'trash' || confirm(`${permanentMessage}\n${path}`)
+}
+
+/** Select confirmed permanent deletion throughout home trash. @param preference Browser deletion preference. @param path Visible entry path. @param trashDirectory Host trash files directory. @returns Effective deletion mode. */
+export function fileManagerRemovalMode(
+  preference: FileManagerDeleteMode,
+  path: string,
+  trashDirectory: string | undefined,
+): FileManagerDeleteMode {
+  return isInsideTrash(path, trashDirectory) ? 'permanent' : preference
 }
 
 function EntryRows({
@@ -74,11 +87,14 @@ function EntryRow({
     const destination = actions.prompt(actions.t('movePrompt'), entry.path)
     if (destination !== null && destination !== '' && destination !== entry.path) actions.move(entry.path, destination)
   }
+  const inTrash = isInsideTrash(entry.path, instance.trashDirectory)
+  const restorable = isTrashRecord(entry.path, instance.trashDirectory)
+  const mode = fileManagerRemovalMode(instance.deleteMode, entry.path, instance.trashDirectory)
   const remove = (): void => {
     const confirmed = confirmFileManagerRemoval(
-      instance.deleteMode, entry.path, actions.confirm, actions.t('permanentDeletePrompt'),
+      mode, entry.path, actions.confirm, actions.t(inTrash ? 'trashDeletePrompt' : 'permanentDeletePrompt'),
     )
-    if (confirmed) actions.remove(entry.path, instance.deleteMode, instance.deleteMode === 'permanent')
+    if (confirmed) actions.remove(entry.path, mode, mode === 'permanent')
   }
   return (
     <>
@@ -122,6 +138,10 @@ function EntryRow({
           <span>{entry.name}</span>
         </button>
         <span className="dsh-file-manager-row-actions">
+          {restorable && <button type="button" className="dsh-file-manager-row-action" title={actions.t('restore')} aria-label={actions.t('restore')}
+            onClick={() => { actions.restore(entry.path) }}>
+            <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="M4 11a6 6 0 1 0 1.8-4.3M4 3v4h4" /></svg>
+          </button>}
           <button type="button" className="dsh-file-manager-row-action" title={actions.t('renameMove')} aria-label={actions.t('renameMove')} onClick={move}>
             <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="m12 3 5 5-9 9H3v-5zM10 5l5 5" /></svg>
           </button>
@@ -221,6 +241,7 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t }: Fi
     create: (name, kind) => { void manager.create(instanceId, name, kind) },
     move: (source, destination) => { void manager.move(instanceId, source, destination) },
     remove: (path, mode, confirmed) => { void manager.remove(instanceId, path, mode, confirmed) },
+    restore: path => { void manager.restoreFromTrash(instanceId, path) },
     clearError: () => { manager.clearError(instanceId) },
   }
   const snapshot = useSyncExternalStore(actions.subscribe, actions.snapshot, actions.snapshot)
@@ -265,12 +286,12 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t }: Fi
         </div>
       ))}
       {snapshot.status === 'loading' && <div className="dsh-file-manager-state" role="status">{actions.t('loading')}</div>}
-      {snapshot.directory !== undefined && snapshot.directory.path === snapshot.trashDirectory && <div className="dsh-file-manager-trash-scope" role="note">{actions.t('trashScope')}</div>}
+      {snapshot.directory !== undefined && isInsideTrash(snapshot.directory.path, snapshot.trashDirectory) && <div className="dsh-file-manager-trash-scope" role="note">{actions.t('trashScope')}</div>}
       {snapshot.directory !== undefined && (
         <div className="dsh-file-manager-tree-area">
+          <DirectoryActions actions={actions} snapshot={snapshot} create={create} />
           <div className="dsh-file-manager-tree" role="tree">
             <div className="dsh-file-manager-tree-content">
-              <DirectoryActions actions={actions} snapshot={snapshot} create={create} />
               {snapshot.directory.parent !== undefined && (
                 <button
                   type="button"

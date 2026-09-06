@@ -42,6 +42,7 @@ function harness(storage?: FileManagerPreferenceStorage, initial: FileManagerDel
     })),
     create: vi.fn(async () => {}),
     move: vi.fn(async () => {}),
+    restore: vi.fn(async () => {}),
     deleteEntry: vi.fn(async () => {}),
   }
   const sidebar = {

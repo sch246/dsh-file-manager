@@ -15,7 +15,20 @@ export interface FileManagerGateway {
   list(sessionId: SessionId, path: string, showHidden: boolean, signal: AbortSignal): Promise<FileManagerDirectory>
   create(sessionId: SessionId, parent: string, name: string, kind: 'file' | 'directory', signal: AbortSignal): Promise<void>
   move(sessionId: SessionId, source: string, destination: string, signal: AbortSignal): Promise<void>
+  restore(sessionId: SessionId, path: string, signal: AbortSignal): Promise<void>
   deleteEntry(sessionId: SessionId, path: string, mode: FileManagerDeleteMode, confirmed: boolean, signal: AbortSignal): Promise<void>
+}
+
+/** Identify the home trash root and descendants. @param path Listed canonical-parent path. @param trashDirectory Host trash files directory. @returns Whether deletion requires permanent confirmation. */
+export function isInsideTrash(path: string, trashDirectory: string | undefined): boolean {
+  if (!trashDirectory) return false
+  const root = parentOf(trashDirectory)
+  return path === root || path.startsWith(`${root}/`)
+}
+
+/** Identify entries eligible for restore. @param path Listed path. @param trashDirectory Host trash files directory. @returns Whether the path is a direct files child. */
+export function isTrashRecord(path: string, trashDirectory: string | undefined): boolean {
+  return trashDirectory !== undefined && path !== trashDirectory && parentOf(path) === trashDirectory
 }
 
 /** Generic resource-opening intent needed by tree file links. */
@@ -198,6 +211,7 @@ export class FileManagerService {
   readonly #resources: FileManagerResourceOpener
   readonly #title: () => string
   readonly #directoryPollIntervalMs: number
+  readonly #trashDirectory: string | undefined
   #deleteMode: FileManagerDeleteMode
   #showHidden: boolean
   #filterEnabled: boolean
@@ -205,7 +219,7 @@ export class FileManagerService {
   readonly #records = new Map<string, RecordState>()
   #disposed = false
 
-  /** @param gateway - Filesystem operations. @param sidebar - Workbench instance host. @param resources - Generic resource opener. @param title - Localized tree title. @param directoryPollIntervalMs - Delay after each directory polling cycle. @param deleteMode - Initial deletion preference. @param preferenceStorage - Browser preference persistence, separate from tree restoration. */
+  /** @param gateway - Filesystem operations. @param sidebar - Workbench instance host. @param resources - Generic resource opener. @param title - Localized tree title. @param directoryPollIntervalMs - Delay after each directory polling cycle. @param deleteMode - Initial deletion preference. @param preferenceStorage - Browser preference persistence, separate from tree restoration. @param trashDirectory Provider-resolved home trash files directory. */
   constructor(
     gateway: FileManagerGateway,
     sidebar: RightSidebarService,
@@ -214,12 +228,14 @@ export class FileManagerService {
     directoryPollIntervalMs: number,
     deleteMode: FileManagerDeleteMode,
     preferenceStorage?: FileManagerPreferenceStorage,
+    trashDirectory?: string,
   ) {
     this.#gateway = gateway
     this.#sidebar = sidebar
     this.#resources = resources
     this.#title = title
     this.#directoryPollIntervalMs = directoryPollIntervalMs
+    this.#trashDirectory = trashDirectory
     this.#preferenceStorage = preferenceStorage
     this.#deleteMode = preferenceStorage === undefined ? deleteMode : readDeleteMode(preferenceStorage, deleteMode)
     this.#showHidden = readManagerSwitch(preferenceStorage, 'show-hidden')
@@ -245,6 +261,7 @@ export class FileManagerService {
           deleteMode: this.#deleteMode,
           expanded: Object.freeze({}),
           refreshErrors: Object.freeze({}),
+          ...(this.#trashDirectory === undefined ? {} : { trashDirectory: this.#trashDirectory }),
         },
         listeners: new Set(),
         resourceOpenGeneration: 0,
@@ -290,6 +307,7 @@ export class FileManagerService {
         deleteMode: this.#deleteMode,
         expanded: Object.freeze({}),
         refreshErrors: Object.freeze({}),
+        ...(this.#trashDirectory === undefined ? {} : { trashDirectory: this.#trashDirectory }),
         ...(descriptor.selectedPath === undefined ? {} : { selectedPath: descriptor.selectedPath }),
       },
       listeners: new Set(),
@@ -485,6 +503,12 @@ export class FileManagerService {
     await this.#mutate(record, signal => this.#gateway.deleteEntry(
       record.snapshot.sessionId, path, mode, confirmed, signal,
     ))
+  }
+
+  /** Return one trash entry to its recorded path and refresh the loaded listings. */
+  async restoreFromTrash(instanceId: string, path: string): Promise<void> {
+    const record = this.#record(instanceId)
+    await this.#mutate(record, signal => this.#gateway.restore(record.snapshot.sessionId, path, signal))
   }
 
   /** Clear the retained operation error. */

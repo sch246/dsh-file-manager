@@ -4,6 +4,7 @@ import z from '@deepseek-ai/schemastery'
 import trash from 'trash'
 import { FileManagerFilesystem } from './filesystem.ts'
 import { FileManagerRemote } from './remote.ts'
+import { homeTrashPaths } from './trash.ts'
 
 export type * from './types.ts'
 export { FileManagerFilesystem, FileManagerFilesystemError } from './filesystem.ts'
@@ -35,6 +36,7 @@ export function apply(ctx: Context, config: Config): void {
     ctx.userFiles.filesystem,
     async paths => { await trash([...paths], { glob: false }) },
     config.moveCommand,
+    homeTrashPaths,
   )
   new FileManagerRemote(ctx, filesystem, config)
 }

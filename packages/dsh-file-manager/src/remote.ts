@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { UserFileFilesystemError } from '@dsh-external/dsh-user-files'
-import type { UserFileResolvedPath } from '@dsh-external/dsh-user-files/types'
+import type { UserFilePathRequest, UserFileResolvedPath } from '@dsh-external/dsh-user-files/types'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import {
   FileManagerFilesystem, FileManagerFilesystemError,
@@ -52,10 +52,13 @@ export class FileManagerRemote extends TypertRemoteService {
     super(ctx, 'fileManager', { namespace: 'fileManager' })
   }
 
-  /** Return Host-owned limits, polling intervals, and initial deletion preference. */
+  /** Return Host polling, deletion preference and canonical trash scope. @returns Metadata; trash resolver failures reject. */
   @Remote('metadata')
-  metadata(): FileManagerMetadata {
-    return this.configMetadata
+  async metadata(): Promise<FileManagerMetadata> {
+    return await this.guard(new AbortController().signal, async () => {
+      const locations = await this.filesystem.trashPaths()
+      return { ...this.configMetadata, ...(locations === undefined ? {} : { trashDirectory: locations.files }) }
+    })
   }
 
   /**
@@ -126,6 +129,15 @@ export class FileManagerRemote extends TypertRemoteService {
         this.ctx.userFiles.absolute({ sessionId: request.sessionId, path: request.destination }, signal),
       ])
       return await this.filesystem.move(source, destination, signal)
+    })
+  }
+
+  /** Restore one direct trash-files child without replacing its original destination. @param request Session and visible trashed path. @param signal Request cancellation. @returns Restored path; invalid records and occupied destinations reject without deleting the trash entry. */
+  @Remote('restore')
+  async restore(request: UserFilePathRequest, signal: AbortSignal): Promise<FileManagerMoveResult> {
+    return await this.guard(signal, async () => {
+      const path = await this.ctx.userFiles.absolute(request, signal)
+      return await this.filesystem.restore(path, signal)
     })
   }
 

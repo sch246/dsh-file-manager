@@ -56,6 +56,9 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
     move: async (sessionId, source, destination, signal) => {
       valueOf(await ctx.remote.fileManager.move({ sessionId, source, destination }, signal))
     },
+    restore: async (sessionId, path, signal) => {
+      valueOf(await ctx.remote.fileManager.restore({ sessionId, path }, signal))
+    },
     deleteEntry: async (sessionId, path, mode, confirmed, signal) => {
       valueOf(await ctx.remote.fileManager.deleteEntry({ sessionId, path, mode, confirmed }, signal))
     },
@@ -70,6 +73,7 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
     metadata.directoryPollIntervalMs,
     metadata.deleteMode,
     browserPreferenceStorage,
+    metadata.trashDirectory,
   )
 
   const offDirectoryOpen = ctx.on('chat/open-workspace-file', async (request, next) => {

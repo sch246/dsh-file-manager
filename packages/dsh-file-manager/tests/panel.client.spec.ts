@@ -4,8 +4,8 @@ import { createRoot } from 'react-dom/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RightSidebarService } from '@dsh-external/dsh-right-sidebar/client'
 import { describe, expect, it, vi } from 'vitest'
-import { FileManagerPanel, confirmFileManagerRemoval } from '../src/client/FileManagerPanel.tsx'
-import { FileManagerService, type FileManagerGateway } from '../src/client/service.ts'
+import { FileManagerPanel, confirmFileManagerRemoval, fileManagerRemovalMode } from '../src/client/FileManagerPanel.tsx'
+import { FileManagerService, isInsideTrash, isTrashRecord, type FileManagerGateway } from '../src/client/service.ts'
 import { en } from '../src/client/locales.ts'
 import type { FileManagerEntry } from '../src/types.ts'
 
@@ -42,6 +42,7 @@ it('exposes compact actions, remembers menu choices, and stops filtering without
     }),
     move: vi.fn(),
     deleteEntry: vi.fn(),
+    restore: vi.fn(),
   }
   const sidebar = { openInstance: vi.fn(), updateInstance: vi.fn() } as unknown as RightSidebarService
   const manager = new FileManagerService(gateway, sidebar, { open: vi.fn() }, () => 'Files', 60_000, 'trash', storage)
@@ -129,6 +130,7 @@ it('renders one Delete action and uses the menu preference for trash, permanent 
     create: vi.fn(),
     move: vi.fn(),
     deleteEntry: vi.fn(async () => {}),
+    restore: vi.fn(async () => {}),
   }
   const sidebar = { openInstance: vi.fn(), updateInstance: vi.fn() } as unknown as RightSidebarService
   const manager = new FileManagerService(gateway, sidebar, { open: vi.fn() }, () => 'Files', 60_000, 'trash')
@@ -170,6 +172,82 @@ it('renders one Delete action and uses the menu preference for trash, permanent 
     expect(gateway.deleteEntry).toHaveBeenCalledTimes(3)
     expect(gateway.deleteEntry).toHaveBeenLastCalledWith('panel-session', file.path, 'trash', false, expect.any(AbortSignal))
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('trash failed')
+  } finally {
+    await act(async () => { root.unmount() })
+    manager.dispose()
+    container.remove()
+    vi.unstubAllGlobals()
+  }
+})
+
+describe('file-manager trash scope', () => {
+  it('classifies only real trash paths and forces permanent deletion inside them', () => {
+    const trash = '/provider-trash/files'
+    expect(isInsideTrash(`${trash}/held.txt`, trash)).toBe(true)
+    expect(isInsideTrash(`${trash}/folder/inner.txt`, trash)).toBe(true)
+    expect(isInsideTrash(trash, trash)).toBe(true)
+    expect(isInsideTrash('/provider-trash/files-elsewhere/held.txt', trash)).toBe(true)
+    expect(isInsideTrash('/provider-trash-elsewhere/files/held.txt', trash)).toBe(false)
+    expect(isInsideTrash('/provider-trash/info/held.trashinfo', trash)).toBe(true)
+    expect(isInsideTrash('/workspace/note.txt', trash)).toBe(false)
+    expect(isInsideTrash('/workspace/note.txt', undefined)).toBe(false)
+
+    expect(isTrashRecord(`${trash}/held.txt`, trash)).toBe(true)
+    expect(isTrashRecord(`${trash}/folder/inner.txt`, trash)).toBe(false)
+    expect(isTrashRecord('/workspace/note.txt', trash)).toBe(false)
+
+    expect(fileManagerRemovalMode('trash', `${trash}/held.txt`, trash)).toBe('permanent')
+    expect(fileManagerRemovalMode('trash', '/workspace/note.txt', trash)).toBe('trash')
+    expect(fileManagerRemovalMode('permanent', '/workspace/note.txt', trash)).toBe('permanent')
+  })
+})
+
+it.each(['/provider-trash/files', '/provider-trash/files/nested', '/provider-trash/info'])('floats actions and confirms permanent deletion in %s', async directory => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  const trashDirectory = '/provider-trash/files'
+  const held = { name: 'held.txt', path: `${directory}/held.txt`, canonicalPath: `${directory}/held.txt`, kind: 'file' as const, symbolicLink: false, hidden: false }
+  const gateway: FileManagerGateway = {
+    initialLocation: async () => ({ path: directory, name: 'files', kind: 'directory' }),
+    trashLocation: vi.fn(),
+    resolve: vi.fn(async (_sessionId, path) => ({ path, name: 'files', kind: 'directory' as const })),
+    list: async () => ({ path: directory, parent: '/provider-trash', entries: [held] }),
+    create: vi.fn(),
+    move: vi.fn(),
+    deleteEntry: vi.fn(async () => {}),
+    restore: vi.fn(async () => {}),
+  }
+  const sidebar = { openInstance: vi.fn(), updateInstance: vi.fn() } as unknown as RightSidebarService
+  const manager = new FileManagerService(
+    gateway, sidebar, { open: vi.fn() }, () => 'Files', 60_000, 'trash', undefined, trashDirectory,
+  )
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  try {
+    const instanceId = await manager.open('trash-session' as SessionId)
+    const confirm = vi.fn(() => true)
+    await act(async () => { root.render(createElement(FileManagerPanel, { manager, instanceId, prompt: vi.fn(), confirm, t: key => en[key] })) })
+
+    // Scrolling the tree must not move the create/refresh overlay.
+    const area = container.querySelector('.dsh-file-manager-tree-area')!
+    const actions = container.querySelector('.dsh-file-manager-directory-actions')!
+    expect(actions.parentElement).toBe(area)
+    expect(container.querySelector('.dsh-file-manager-tree')!.contains(actions)).toBe(false)
+
+    const restore = container.querySelector<HTMLButtonElement>(`button[aria-label="${en.restore}"]`)!
+    if (directory === trashDirectory) {
+      expect(restore).not.toBeNull()
+      await act(async () => { restore.click() })
+      expect(gateway.restore).toHaveBeenCalledWith('trash-session', held.path, expect.any(AbortSignal))
+      vi.mocked(gateway.restore).mockRejectedValueOnce(new Error('original path occupied'))
+      await act(async () => { restore.click() })
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain('original path occupied')
+    } else expect(restore).toBeNull()
+    expect(container.querySelector('[role="note"]')?.textContent).toBe(en.trashScope)
+
+    await act(async () => { container.querySelector<HTMLButtonElement>('button[aria-label="Delete"]')!.click() })
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(`${en.trashDeletePrompt}\n${held.path}`)
+    expect(gateway.deleteEntry).toHaveBeenLastCalledWith('trash-session', held.path, 'permanent', true, expect.any(AbortSignal))
   } finally {
     await act(async () => { root.unmount() })
     manager.dispose()

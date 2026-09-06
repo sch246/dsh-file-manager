@@ -27,6 +27,8 @@ export interface FileManagerDirectory {
 /** Host-owned browser behavior and polling configuration. */
 export interface FileManagerMetadata {
   readonly directoryPollIntervalMs: number
+  /** Provider-resolved home trash files directory, absent on unsupported platforms. */
+  readonly trashDirectory?: string
   readonly deleteMode: FileManagerDeleteMode
 }
 
