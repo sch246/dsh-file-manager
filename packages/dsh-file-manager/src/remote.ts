@@ -1,26 +1,21 @@
-import { isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
-import { Remote, RemoteError, remoteErrorOf, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { UserFileFilesystemError } from '@dsh-external/dsh-user-files'
+import type { UserFileResolvedPath } from '@dsh-external/dsh-user-files/types'
+import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import {
-  FileManagerFilesystem, FileManagerFilesystemError, resolveUserPath,
+  FileManagerFilesystem, FileManagerFilesystemError,
 } from './filesystem.ts'
 import { homeTrashDirectory } from './trash.ts'
 import type {
   FileManagerCreateRequest, FileManagerCreateResult, FileManagerDirectory,
   FileManagerDeleteEntryRequest, FileManagerDeleteEntryResult,
   FileManagerInitialLocationRequest, FileManagerListRequest, FileManagerMetadata,
-  FileManagerMoveRequest, FileManagerMoveResult, FileManagerPathRequest,
-  FileManagerResolvedPath, FileManagerSaveBytesRequest, FileManagerSaveRequest, FileManagerSaveResult,
-  FileManagerTextDocument, FileManagerBytesDocument,
-  FileManagerResolveManyRequest, FileManagerResolveManyResult,
+  FileManagerMoveRequest, FileManagerMoveResult,
 } from './types.ts'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
-    /** The metadata batch exceeds the configured input count. */
-    'file-manager/batch-too-large': { readonly maxResolveBatchSize: number }
     /** The Session or addressed path does not exist. */
     'file-manager/not-found': { readonly path: string; readonly sessionId?: SessionId }
     /** The addressed path or child name is invalid. */
@@ -29,20 +24,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'file-manager/not-directory': { readonly path: string }
     /** The addressed path is not a regular file. */
     'file-manager/not-file': { readonly path: string }
-    /** The bounded file is not UTF-8 text. */
-    'file-manager/not-text': { readonly path: string }
-    /** The file exceeds the configured complete-resource limit. */
-    'file-manager/too-large': {
-      readonly path: string
-      readonly maxTextReadBytes: number
-      readonly maxByteReadBytes: number
-    }
-    /** A byte-write request did not contain canonical base64. */
-    'file-manager/invalid-bytes': { readonly path: string }
     /** A create or move destination already exists. */
     'file-manager/already-exists': { readonly path: string }
-    /** The loaded revision is no longer current. */
-    'file-manager/stale-version': { readonly path: string }
     /** Filesystem root cannot be moved or removed. */
     'file-manager/root-delete': { readonly path: string }
     /** Permanent deletion did not carry browser confirmation. */
@@ -56,13 +39,6 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 
 function cancelled(cause?: unknown): RemoteError<'gateway/cancelled'> {
   return new RemoteError('gateway/cancelled', 'file manager request was cancelled', {}, { cause })
-}
-
-function decodeBase64(value: string, path: string): Uint8Array {
-  if (!/^(?:[A-Za-z\d+/]{4})*(?:[A-Za-z\d+/]{2}==|[A-Za-z\d+/]{3}=)?$/u.test(value)) {
-    throw new RemoteError('file-manager/invalid-bytes', 'byte content must be canonical base64', { path })
-  }
-  return new Uint8Array(Buffer.from(value, 'base64'))
 }
 
 /** Host Remote exposing user-authorized filesystem management without agent filesystem policy. */
@@ -89,16 +65,16 @@ export class FileManagerRemote extends TypertRemoteService {
    * @returns Existing canonical directory; rejects unsupported platforms or an absent/inaccessible directory.
    */
   @Remote('trashLocation')
-  async trashLocation(request: FileManagerInitialLocationRequest, signal: AbortSignal): Promise<FileManagerResolvedPath> {
+  async trashLocation(request: FileManagerInitialLocationRequest, signal: AbortSignal): Promise<UserFileResolvedPath> {
     return await this.guard(signal, async () => {
-      await this.cwdOf(request.sessionId, signal)
+      await this.ctx.userFiles.cwdOf(request.sessionId, signal)
       const path = await homeTrashDirectory()
       signal.throwIfAborted()
-      let resolved: FileManagerResolvedPath
+      let resolved: UserFileResolvedPath
       try {
-        resolved = await this.filesystem.resolveExisting(path)
+        resolved = await this.ctx.userFiles.filesystem.resolveExisting(path)
       } catch (error: unknown) {
-        if (error instanceof FileManagerFilesystemError && error.code === 'not-found') {
+        if (error instanceof UserFileFilesystemError && error.code === 'not-found') {
           throw new FileManagerFilesystemError('not-found', path, 'The home trash directory has not been created; there is no directory to browse.', { cause: error })
         }
         throw error
@@ -114,50 +90,10 @@ export class FileManagerRemote extends TypertRemoteService {
   async initialLocation(
     request: FileManagerInitialLocationRequest,
     signal: AbortSignal,
-  ): Promise<FileManagerResolvedPath> {
+  ): Promise<UserFileResolvedPath> {
     return await this.guard(signal, async () => {
-      const cwd = await this.cwdOf(request.sessionId, signal)
-      return await this.filesystem.resolveExisting(cwd)
-    })
-  }
-
-  /** Follow an existing absolute or Session-relative path to its canonical identity. */
-  @Remote('resolve')
-  async resolvePath(request: FileManagerPathRequest, signal: AbortSignal): Promise<FileManagerResolvedPath> {
-    return await this.guard(signal, async () => {
-      const path = await this.absolute(request, signal)
-      return await this.filesystem.resolveExisting(path)
-    })
-  }
-
-  /**
-   * Resolve metadata only, preserving input order and individual path failures.
-   * @param request - Session and paths, capped by maxResolveBatchSize before resolution.
-   * @param signal - Cancellation rejects the entire batch, including completed results.
-   * @returns One metadata or error result per input, including duplicate paths.
-   */
-  @Remote('resolveMany')
-  async resolveMany(request: FileManagerResolveManyRequest, signal: AbortSignal): Promise<readonly FileManagerResolveManyResult[]> {
-    return await this.guard(signal, async () => {
-      if (request.paths.length > this.configMetadata.maxResolveBatchSize) {
-        throw new RemoteError('file-manager/batch-too-large', 'too many paths in metadata request', {
-          maxResolveBatchSize: this.configMetadata.maxResolveBatchSize,
-        })
-      }
-      const results: FileManagerResolveManyResult[] = []
-      for (const inputPath of request.paths) {
-        try {
-          const value = await this.resolvePath({ sessionId: request.sessionId, path: inputPath }, signal)
-          signal.throwIfAborted()
-          results.push({ inputPath, ok: true, value })
-        } catch (error: unknown) {
-          signal.throwIfAborted()
-          const failure = remoteErrorOf(error)
-          if (failure === undefined || failure.code === 'gateway/cancelled') throw error
-          results.push({ inputPath, ok: false, error: { code: failure.code, message: failure.message } })
-        }
-      }
-      return results
+      const cwd = await this.ctx.userFiles.cwdOf(request.sessionId, signal)
+      return await this.ctx.userFiles.filesystem.resolveExisting(cwd)
     })
   }
 
@@ -165,45 +101,8 @@ export class FileManagerRemote extends TypertRemoteService {
   @Remote('list')
   async list(request: FileManagerListRequest, signal: AbortSignal): Promise<FileManagerDirectory> {
     return await this.guard(signal, async () => {
-      const path = await this.absolute(request, signal)
+      const path = await this.ctx.userFiles.absolute(request, signal)
       return await this.filesystem.list(path, request.showHidden, signal)
-    })
-  }
-
-  /** Read canonical LF text and its opaque guarded-write revision. */
-  @Remote('readText')
-  async readText(request: FileManagerPathRequest, signal: AbortSignal): Promise<FileManagerTextDocument> {
-    return await this.guard(signal, async () => {
-      const path = await this.absolute(request, signal)
-      return await this.filesystem.readText(path, signal)
-    })
-  }
-
-  /** Read exact bounded bytes without text decoding. */
-  @Remote('readBytes')
-  async readBytes(request: FileManagerPathRequest, signal: AbortSignal): Promise<FileManagerBytesDocument> {
-    return await this.guard(signal, async () => {
-      const path = await this.absolute(request, signal)
-      const document = await this.filesystem.readBytes(path, signal)
-      return { path: document.path, dataBase64: Buffer.from(document.bytes).toString('base64'), version: document.version }
-    })
-  }
-
-  /** Publish exact bytes after staging and checking the loaded revision. */
-  @Remote('saveBytes')
-  async saveBytes(request: FileManagerSaveBytesRequest, signal: AbortSignal): Promise<FileManagerSaveResult> {
-    return await this.guard(signal, async () => {
-      const path = await this.absolute(request, signal)
-      return await this.filesystem.saveBytes(path, decodeBase64(request.dataBase64, path), request.version, signal)
-    })
-  }
-
-  /** Publish text after staging and checking the loaded revision immediately before replacement. */
-  @Remote('saveText')
-  async saveText(request: FileManagerSaveRequest, signal: AbortSignal): Promise<FileManagerSaveResult> {
-    return await this.guard(signal, async () => {
-      const path = await this.absolute(request, signal)
-      return await this.filesystem.saveText(path, request.text, request.version, signal)
     })
   }
 
@@ -212,8 +111,8 @@ export class FileManagerRemote extends TypertRemoteService {
   async create(request: FileManagerCreateRequest, signal: AbortSignal): Promise<FileManagerCreateResult> {
     return await this.guard(signal, async () => {
       signal.throwIfAborted()
-      const parent = await this.absolute(request, signal)
-      return await this.filesystem.create(parent, request.name, request.kind)
+      const parent = await this.ctx.userFiles.absolute(request, signal)
+      return await this.filesystem.create(parent, request.name, request.kind, signal)
     })
   }
 
@@ -223,10 +122,10 @@ export class FileManagerRemote extends TypertRemoteService {
     return await this.guard(signal, async () => {
       signal.throwIfAborted()
       const [source, destination] = await Promise.all([
-        this.absolute({ sessionId: request.sessionId, path: request.source }, signal),
-        this.absolute({ sessionId: request.sessionId, path: request.destination }, signal),
+        this.ctx.userFiles.absolute({ sessionId: request.sessionId, path: request.source }, signal),
+        this.ctx.userFiles.absolute({ sessionId: request.sessionId, path: request.destination }, signal),
       ])
-      return await this.filesystem.move(source, destination)
+      return await this.filesystem.move(source, destination, signal)
     })
   }
 
@@ -235,38 +134,10 @@ export class FileManagerRemote extends TypertRemoteService {
   async deleteEntry(request: FileManagerDeleteEntryRequest, signal: AbortSignal): Promise<FileManagerDeleteEntryResult> {
     return await this.guard(signal, async () => {
       signal.throwIfAborted()
-      const path = await this.absolute(request, signal)
-      await this.filesystem.remove(path, request.mode, request.confirmed)
+      const path = await this.ctx.userFiles.absolute(request, signal)
+      await this.filesystem.remove(path, request.mode, request.confirmed, signal)
       return { mode: request.mode }
     })
-  }
-
-  private async absolute(request: FileManagerPathRequest, signal: AbortSignal): Promise<string> {
-    if (isAbsolute(request.path)) return resolveUserPath(request.path, process.cwd())
-    return resolveUserPath(request.path, await this.cwdOf(request.sessionId, signal))
-  }
-
-  private async cwdOf(sessionId: SessionId, signal: AbortSignal): Promise<string> {
-    signal.throwIfAborted()
-    const live = this.ctx.sessions.get(sessionId)
-    let header = live?.header
-    if (header === undefined) {
-      try {
-        header = (await this.ctx.sessionPersistence.inspect(sessionId, signal)).meta
-      } catch (error: unknown) {
-        if (signal.aborted) throw cancelled(error)
-        if (error instanceof SessionPersistenceNotFoundError) {
-          throw new RemoteError('file-manager/not-found', `session "${sessionId}" was not found`, {
-            sessionId,
-            path: '',
-          }, { cause: error })
-        }
-        throw new FileManagerFilesystemError(
-          'unavailable', '', `session "${sessionId}" could not be inspected`, { cause: error },
-        )
-      }
-    }
-    return header.cwd ?? process.cwd()
   }
 
   private async guard<T>(signal: AbortSignal, operation: () => Promise<T>): Promise<T> {
@@ -275,14 +146,8 @@ export class FileManagerRemote extends TypertRemoteService {
       return await operation()
     } catch (error: unknown) {
       if (signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw cancelled(error)
-      if (!(error instanceof FileManagerFilesystemError)) throw error
-      const details = error.code === 'too-large'
-        ? {
-            path: error.path,
-            maxTextReadBytes: this.configMetadata.maxTextReadBytes,
-            maxByteReadBytes: this.configMetadata.maxByteReadBytes,
-          }
-        : { path: error.path }
+      if (!(error instanceof FileManagerFilesystemError) && !(error instanceof UserFileFilesystemError)) throw error
+      const details = { path: error.path }
       throw new RemoteError(`file-manager/${error.code}` as keyof import('@deepseek-ai/dsh-typert-protocol').RemoteErrorDetailsMap, error.message, details, { cause: error })
     }
   }

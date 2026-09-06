@@ -1,3 +1,4 @@
+import { UserFileFilesystem } from '@dsh-external/dsh-user-files'
 import { tmpdir } from 'node:os'
 import { basename, join, parse } from 'node:path'
 import {
@@ -5,12 +6,13 @@ import {
 } from 'node:fs/promises'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  FileManagerFilesystem, FileManagerFilesystemError, type FileManagerTrash,
+  FileManagerFilesystem, type FileManagerTrash,
 } from '../src/filesystem.ts'
 
 const fixtures: string[] = []
 let root: string
 let trashed: string[]
+const shared = new UserFileFilesystem(1024, 4096)
 let filesystem: FileManagerFilesystem
 
 beforeEach(async () => {
@@ -26,7 +28,7 @@ beforeEach(async () => {
       trashed.push(destination)
     }
   }
-  filesystem = new FileManagerFilesystem(1024, 4096, trash, 'mv')
+  filesystem = new FileManagerFilesystem(new UserFileFilesystem(1024, 4096), trash, 'mv')
 })
 
 afterEach(async () => {
@@ -35,7 +37,7 @@ afterEach(async () => {
 
 async function expectCode(operation: Promise<unknown>, code: string): Promise<void> {
   await expect(operation).rejects.toEqual(expect.objectContaining({
-    name: 'FileManagerFilesystemError', code,
+    code,
   }))
 }
 
@@ -67,33 +69,33 @@ describe('FileManagerFilesystem', () => {
     expect(listing.entries.find(entry => entry.path === image)).toMatchObject({
       name: 'pixel.png', kind: 'file', size: 4, mediaType: 'image/png',
     })
-    expect(await filesystem.resolveExisting(image)).toMatchObject({
+    expect(await shared.resolveExisting(image)).toMatchObject({
       path: image, name: 'pixel.png', kind: 'file', size: 4, mediaType: 'image/png',
     })
   })
 
   it('creates and moves files and folders without replacing an observed target', async () => {
-    await filesystem.create(root, 'first.txt', 'file')
-    await filesystem.create(root, 'folder', 'directory')
-    await expectCode(filesystem.create(root, 'first.txt', 'file'), 'already-exists')
+    await filesystem.create(root, 'first.txt', 'file', new AbortController().signal)
+    await filesystem.create(root, 'folder', 'directory', new AbortController().signal)
+    await expectCode(filesystem.create(root, 'first.txt', 'file', new AbortController().signal), 'already-exists')
     await writeFile(join(root, 'occupied.txt'), 'keep')
-    await expectCode(filesystem.move(join(root, 'first.txt'), join(root, 'occupied.txt')), 'already-exists')
+    await expectCode(filesystem.move(join(root, 'first.txt'), join(root, 'occupied.txt'), new AbortController().signal), 'already-exists')
     expect(await readFile(join(root, 'occupied.txt'), 'utf8')).toBe('keep')
 
-    await filesystem.move(join(root, 'first.txt'), join(root, 'renamed.txt'))
+    await filesystem.move(join(root, 'first.txt'), join(root, 'renamed.txt'), new AbortController().signal)
     expect(await readFile(join(root, 'renamed.txt'), 'utf8')).toBe('')
-    await filesystem.move(join(root, 'folder'), join(root, 'renamed-folder'))
-    expect((await filesystem.resolveExisting(join(root, 'renamed-folder'))).kind).toBe('directory')
+    await filesystem.move(join(root, 'folder'), join(root, 'renamed-folder'), new AbortController().signal)
+    expect((await shared.resolveExisting(join(root, 'renamed-folder'))).kind).toBe('directory')
   })
 
   it('competing managers preserve the losing source when moving to the same destination', async () => {
-    const other = new FileManagerFilesystem(1024, 4096, async () => {}, 'mv')
+    const other = new FileManagerFilesystem(new UserFileFilesystem(1024, 4096), async () => {}, 'mv')
     const left = join(root, 'left.txt')
     const right = join(root, 'right.txt')
     const target = join(root, 'contended.txt')
     await writeFile(left, 'left')
     await writeFile(right, 'right')
-    const results = await Promise.allSettled([filesystem.move(left, target), other.move(right, target)])
+    const results = await Promise.allSettled([filesystem.move(left, target, new AbortController().signal), other.move(right, target, new AbortController().signal)])
     expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
     const winner = await readFile(target, 'utf8')
     expect(['left', 'right']).toContain(winner)
@@ -109,10 +111,10 @@ describe('FileManagerFilesystem', () => {
     await mkdir(full)
     await writeFile(join(full, 'child.txt'), 'child')
 
-    await expectCode(filesystem.remove(parse(root).root, 'trash', false), 'root-delete')
-    await filesystem.remove(file, 'trash', false)
-    await filesystem.remove(empty, 'trash', false)
-    await filesystem.remove(full, 'trash', false)
+    await expectCode(filesystem.remove(parse(root).root, 'trash', false, new AbortController().signal), 'root-delete')
+    await filesystem.remove(file, 'trash', false, new AbortController().signal)
+    await filesystem.remove(empty, 'trash', false, new AbortController().signal)
+    await filesystem.remove(full, 'trash', false, new AbortController().signal)
     expect(trashed).toHaveLength(3)
     expect(await readFile(join(trashed[2] as string, 'child.txt'), 'utf8')).toBe('child')
   })
@@ -120,10 +122,10 @@ describe('FileManagerFilesystem', () => {
   it('does not fall back to permanent deletion when recoverable trash fails', async () => {
     const file = join(root, 'trash-failure.txt')
     await writeFile(file, 'keep')
-    const unavailableTrash = new FileManagerFilesystem(1024, 4096, async () => {
+    const unavailableTrash = new FileManagerFilesystem(new UserFileFilesystem(1024, 4096), async () => {
       throw new Error('trash unavailable')
     }, 'mv')
-    await expectCode(unavailableTrash.remove(file, 'trash', false), 'unavailable')
+    await expectCode(unavailableTrash.remove(file, 'trash', false, new AbortController().signal), 'unavailable')
     expect(await readFile(file, 'utf8')).toBe('keep')
   })
 
@@ -136,115 +138,12 @@ describe('FileManagerFilesystem', () => {
     await writeFile(join(target, 'keep.txt'), 'keep')
     await writeFile(join(directory, 'child.txt'), 'child')
     await symlink(target, link)
-    await expectCode(filesystem.remove(link, 'permanent', false), 'confirmation-required')
-    await filesystem.remove(link, 'permanent', true)
+    await expectCode(filesystem.remove(link, 'permanent', false, new AbortController().signal), 'confirmation-required')
+    await filesystem.remove(link, 'permanent', true, new AbortController().signal)
     expect(await readFile(join(target, 'keep.txt'), 'utf8')).toBe('keep')
-    await expectCode(filesystem.resolveExisting(link), 'not-found')
-    await filesystem.remove(directory, 'permanent', true)
-    await expectCode(filesystem.resolveExisting(directory), 'not-found')
+    await expectCode(shared.resolveExisting(link), 'not-found')
+    await filesystem.remove(directory, 'permanent', true, new AbortController().signal)
+    await expectCode(shared.resolveExisting(directory), 'not-found')
   })
 
-  it('canonicalizes EOLs and restores CRLF, mixed EOL, and terminal newline on save', async () => {
-    const crlf = join(root, 'crlf.txt')
-    await writeFile(crlf, 'one\r\ntwo\r\n')
-    const loaded = await filesystem.readText(crlf, new AbortController().signal)
-    expect(loaded.text).toBe('one\ntwo\n')
-    await filesystem.saveText(crlf, loaded.text, loaded.version, new AbortController().signal)
-    expect(await readFile(crlf, 'utf8')).toBe('one\r\ntwo\r\n')
-
-    const mixed = join(root, 'mixed.txt')
-    await writeFile(mixed, 'a\r\nb\rc\n')
-    const mixedLoaded = await filesystem.readText(mixed, new AbortController().signal)
-    await filesystem.saveText(mixed, mixedLoaded.text, mixedLoaded.version, new AbortController().signal)
-    expect(await readFile(mixed, 'utf8')).toBe('a\r\nb\rc\n')
-
-    const none = join(root, 'none.txt')
-    await writeFile(none, 'no newline')
-    const noneLoaded = await filesystem.readText(none, new AbortController().signal)
-    await filesystem.saveText(none, noneLoaded.text, noneLoaded.version, new AbortController().signal)
-    expect(await readFile(none, 'utf8')).toBe('no newline')
-  })
-
-  it('rejects malformed UTF-8, NUL, oversized and non-regular reads', async () => {
-    const invalid = join(root, 'invalid.txt')
-    const nul = join(root, 'nul.txt')
-    const large = join(root, 'large.txt')
-    await writeFile(invalid, Uint8Array.of(0xc3, 0x28))
-    await writeFile(nul, Uint8Array.of(97, 0, 98))
-    await writeFile(large, 'x'.repeat(1025))
-    await expectCode(filesystem.readText(invalid, new AbortController().signal), 'not-text')
-    await expectCode(filesystem.readText(nul, new AbortController().signal), 'not-text')
-    await expectCode(filesystem.readText(large, new AbortController().signal), 'too-large')
-    await expectCode(filesystem.readText(root, new AbortController().signal), 'not-file')
-    expect((await filesystem.readBytes(invalid, new AbortController().signal)).bytes).toEqual(Uint8Array.of(0xc3, 0x28))
-    expect((await filesystem.readBytes(nul, new AbortController().signal)).bytes).toEqual(Uint8Array.of(97, 0, 98))
-    expect((await filesystem.readBytes(large, new AbortController().signal)).bytes).toHaveLength(1025)
-  })
-
-  it('guards exact-byte publication with the same serialized stale revision check', async () => {
-    const path = join(root, 'bytes.bin')
-    await writeFile(path, Uint8Array.of(1, 2, 3))
-    const loaded = await filesystem.readBytes(path, new AbortController().signal)
-    await filesystem.saveBytes(path, Uint8Array.of(4, 0, 5), loaded.version, new AbortController().signal)
-    expect(new Uint8Array(await readFile(path))).toEqual(Uint8Array.of(4, 0, 5))
-
-    const stale = await filesystem.readBytes(path, new AbortController().signal)
-    await writeFile(path, Uint8Array.of(9))
-    await expectCode(
-      filesystem.saveBytes(path, Uint8Array.of(8), stale.version, new AbortController().signal),
-      'stale-version',
-    )
-    expect(new Uint8Array(await readFile(path))).toEqual(Uint8Array.of(9))
-  })
-
-  it('detects an external mutation and never clobbers its content', async () => {
-    const path = join(root, 'concurrent.txt')
-    await writeFile(path, 'original')
-    const loaded = await filesystem.readText(path, new AbortController().signal)
-    await writeFile(path, 'external')
-    await expectCode(
-      filesystem.saveText(path, 'mine', loaded.version, new AbortController().signal),
-      'stale-version',
-    )
-    expect(await readFile(path, 'utf8')).toBe('external')
-  })
-
-  it('rejects a malformed opaque revision before publication', async () => {
-    const path = join(root, 'revision.txt')
-    await writeFile(path, 'original')
-    const loaded = await filesystem.readText(path, new AbortController().signal)
-    const payload = JSON.parse(Buffer.from(loaded.version, 'base64url').toString('utf8')) as Record<string, unknown>
-    payload.sha256 = 'not-a-content-hash'
-    const malformed = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url') as typeof loaded.version
-
-    await expectCode(filesystem.saveText(path, 'mine', malformed, new AbortController().signal), 'stale-version')
-    expect(await readFile(path, 'utf8')).toBe('original')
-  })
-
-  it('serializes own writes so two saves from one revision cannot both publish', async () => {
-    const path = join(root, 'serialized.txt')
-    await writeFile(path, 'base')
-    const loaded = await filesystem.readText(path, new AbortController().signal)
-    const results = await Promise.allSettled([
-      filesystem.saveText(path, 'first', loaded.version, new AbortController().signal),
-      filesystem.saveText(path, 'second', loaded.version, new AbortController().signal),
-    ])
-    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
-    const failure = results.find(result => result.status === 'rejected') as PromiseRejectedResult
-    expect(failure.reason).toBeInstanceOf(FileManagerFilesystemError)
-    expect(failure.reason).toMatchObject({ code: 'stale-version' })
-    expect(['first', 'second']).toContain(await readFile(path, 'utf8'))
-  })
-
-  // Windows CI cannot create symbolic links without host policy that this plugin does not own.
-  it.skipIf(process.platform === 'win32')('follows a file symlink for stable read and save identity', async () => {
-    const target = join(root, 'target.txt')
-    const link = join(root, 'link.txt')
-    await writeFile(target, 'before')
-    await symlink(target, link)
-    const loaded = await filesystem.readText(link, new AbortController().signal)
-    expect(loaded.path).toBe(target)
-    await filesystem.saveText(loaded.path, 'after', loaded.version, new AbortController().signal)
-    expect(await readFile(target, 'utf8')).toBe('after')
-  })
 })

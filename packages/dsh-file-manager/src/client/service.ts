@@ -1,18 +1,17 @@
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type {
-  ResourceDescriptor, ResourceOpenOptions, ResourceSourceId,
-} from '@dsh-external/dsh-file-viewer/client'
+import type { ChatFileOpenRequest } from '@deepseek-ai/dsh-client-ui-chat/client'
+import type { UserFileResolvedPath } from '@dsh-external/dsh-user-files/types'
 import type { RightSidebarService } from '@dsh-external/dsh-right-sidebar/client'
 import { readDeleteMode, saveDeleteMode, readManagerSwitch, saveManagerSwitch, type FileManagerPreferenceStorage } from './preferences.ts'
 import type {
-  FileManagerDeleteMode, FileManagerDirectory, FileManagerEntry, FileManagerResolvedPath,
+  FileManagerDeleteMode, FileManagerDirectory, FileManagerEntry,
 } from '../types.ts'
 
 /** Plain Client adapter over generated Remote operations. */
 export interface FileManagerGateway {
-  initialLocation(sessionId: SessionId, signal: AbortSignal): Promise<FileManagerResolvedPath>
-  trashLocation(sessionId: SessionId, signal: AbortSignal): Promise<FileManagerResolvedPath>
-  resolve(sessionId: SessionId, path: string, signal: AbortSignal): Promise<FileManagerResolvedPath>
+  initialLocation(sessionId: SessionId, signal: AbortSignal): Promise<UserFileResolvedPath>
+  trashLocation(sessionId: SessionId, signal: AbortSignal): Promise<UserFileResolvedPath>
+  resolve(sessionId: SessionId, path: string, signal: AbortSignal): Promise<UserFileResolvedPath>
   list(sessionId: SessionId, path: string, showHidden: boolean, signal: AbortSignal): Promise<FileManagerDirectory>
   create(sessionId: SessionId, parent: string, name: string, kind: 'file' | 'directory', signal: AbortSignal): Promise<void>
   move(sessionId: SessionId, source: string, destination: string, signal: AbortSignal): Promise<void>
@@ -21,7 +20,7 @@ export interface FileManagerGateway {
 
 /** Generic resource-opening intent needed by tree file links. */
 export interface FileManagerResourceOpener {
-  open(descriptor: ResourceDescriptor, options?: ResourceOpenOptions): Promise<string>
+  open(request: ChatFileOpenRequest): Promise<void>
 }
 
 /** Immutable state for one Session file-tree instance. */
@@ -197,7 +196,6 @@ export class FileManagerService {
   readonly #gateway: FileManagerGateway
   readonly #sidebar: RightSidebarService
   readonly #resources: FileManagerResourceOpener
-  readonly #sourceId: ResourceSourceId
   readonly #title: () => string
   readonly #directoryPollIntervalMs: number
   #deleteMode: FileManagerDeleteMode
@@ -207,12 +205,11 @@ export class FileManagerService {
   readonly #records = new Map<string, RecordState>()
   #disposed = false
 
-  /** @param gateway - Filesystem operations. @param sidebar - Workbench instance host. @param resources - Generic resource opener. @param sourceId - Filesystem source id. @param title - Localized tree title. @param directoryPollIntervalMs - Delay after each directory polling cycle. @param deleteMode - Initial deletion preference. @param preferenceStorage - Browser preference persistence, separate from tree restoration. */
+  /** @param gateway - Filesystem operations. @param sidebar - Workbench instance host. @param resources - Generic resource opener. @param title - Localized tree title. @param directoryPollIntervalMs - Delay after each directory polling cycle. @param deleteMode - Initial deletion preference. @param preferenceStorage - Browser preference persistence, separate from tree restoration. */
   constructor(
     gateway: FileManagerGateway,
     sidebar: RightSidebarService,
     resources: FileManagerResourceOpener,
-    sourceId: ResourceSourceId,
     title: () => string,
     directoryPollIntervalMs: number,
     deleteMode: FileManagerDeleteMode,
@@ -221,7 +218,6 @@ export class FileManagerService {
     this.#gateway = gateway
     this.#sidebar = sidebar
     this.#resources = resources
-    this.#sourceId = sourceId
     this.#title = title
     this.#directoryPollIntervalMs = directoryPollIntervalMs
     this.#preferenceStorage = preferenceStorage
@@ -455,19 +451,10 @@ export class FileManagerService {
     }
     this.#checkpoint(record)
     this.#notify(record)
-    const descriptor: ResourceDescriptor = {
-      ref: {
-        sessionId: record.snapshot.sessionId,
-        sourceId: this.#sourceId,
-        resourceId: entry.canonicalPath,
-      },
-      name: entry.name,
-      kind: 'file',
-      ...(entry.size === undefined ? {} : { size: entry.size }),
-      ...(entry.mediaType === undefined ? {} : { mediaType: entry.mediaType }),
-    }
     try {
-      await this.#resources.open(descriptor, {
+      await this.#resources.open({
+        sessionId: record.snapshot.sessionId,
+        path: entry.canonicalPath,
         target: { fromInstanceId: instanceId, direction: 'right' },
         preview,
       })

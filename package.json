@@ -10,7 +10,8 @@
     "typecheck": "bash scripts/typecheck.sh",
     "test": "vitest run packages/dsh-file-manager/tests",
     "setup": "bash scripts/setup.sh",
-    "uninstall": "bash scripts/uninstall.sh"
+    "uninstall": "bash scripts/uninstall.sh",
+    "install:local": "node scripts/install-local.mjs"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.0-rc",
@@ -24,8 +25,6 @@
     "@deepseek-ai/dsh-typert-generator": "0.1.2-alpha.2",
     "@deepseek-ai/dsh-typert-protocol": "0.1.2-alpha.2",
     "@deepseek-ai/schemastery": "^3.18.2",
-    "@dsh-external/dsh-file-viewer": "link:../dsh-file-viewer/packages/dsh-file-viewer",
-    "@dsh-external/dsh-right-sidebar": "link:../dsh-right-sidebar",
     "@types/mime-types": "^2.1.4",
     "@types/node": "^24.3.0",
     "@types/react": "~18.3.1",
@@ -33,8 +32,17 @@
     "jsdom": "^26.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "tsdown": "^0.15.0",
-    "typescript": "^5.9.0",
-    "vitest": "^3.2.4"
+    "tsdown": "0.22.14",
+    "typescript": "5.9.3",
+    "vitest": "4.1.8",
+    "@dsh-external/dsh-user-files": "^0.1.0",
+    "@dsh-external/dsh-right-sidebar": ">=0.0.1 <1",
+    "@deepseek-ai/dsh-client-ui-chat": "0.1.2-alpha.2",
+    "semver": "^7.7.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "vite": "7.3.6"
+    }
   }
 }

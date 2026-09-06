@@ -5,7 +5,6 @@ import {
   FileManagerService, filterLoadedTree, parseFileManagerRestoreDescriptor, parseFileManagerSelection,
   type FileManagerGateway, type FileManagerResourceOpener,
 } from '../src/client/service.ts'
-import { ResourceSourceId } from '@dsh-external/dsh-file-viewer/client'
 import type { FileManagerPreferenceStorage } from '../src/client/preferences.ts'
 import type { FileManagerDeleteMode } from '../src/types.ts'
 
@@ -50,9 +49,9 @@ function harness(storage?: FileManagerPreferenceStorage, initial: FileManagerDel
     activateInstance: vi.fn(),
     updateInstance: vi.fn(),
   } as unknown as RightSidebarService
-  const resources = { open: vi.fn(async () => 'resource-1') } satisfies FileManagerResourceOpener
+  const resources = { open: vi.fn(async () => {}) } satisfies FileManagerResourceOpener
   const service = new FileManagerService(
-    gateway, sidebar, resources, ResourceSourceId('filesystem'), () => 'Files', 50, initial, storage,
+    gateway, sidebar, resources, () => 'Files', 50, initial, storage,
   )
   services.push(service)
   return { gateway, sidebar, resources, service }
@@ -282,13 +281,12 @@ describe('FileManagerService', () => {
     expect(gateway.list).toHaveBeenLastCalledWith(sessionId, root, true, expect.any(AbortSignal))
     await service.openFile(instanceId, file)
     expect(resources.open).toHaveBeenCalledWith(expect.objectContaining({
-      ref: { sessionId, sourceId: 'filesystem', resourceId: file.canonicalPath },
-      name: 'note.txt',
-    }), { target: { fromInstanceId: instanceId, direction: 'right' }, preview: true })
+      sessionId, path: file.canonicalPath, target: { fromInstanceId: instanceId, direction: 'right' }, preview: true,
+    }))
     await service.openFile(instanceId, file, false)
-    expect(resources.open).toHaveBeenLastCalledWith(expect.anything(), {
+    expect(resources.open).toHaveBeenLastCalledWith(expect.objectContaining({
       target: { fromInstanceId: instanceId, direction: 'right' }, preview: false,
-    })
+    }))
     vi.mocked(resources.open).mockRejectedValueOnce(new Error('resource unavailable'))
     await service.openFile(instanceId, file)
     expect(service.snapshot(instanceId).error).toBe('resource unavailable')
@@ -299,18 +297,18 @@ describe('FileManagerService', () => {
     const instanceId = await service.open(sessionId)
     const rejects: ((error: Error) => void)[] = []
     vi.mocked(resources.open)
-      .mockImplementationOnce(async () => await new Promise<string>((_resolve, reject) => { rejects.push(reject) }))
-      .mockImplementationOnce(async () => await new Promise<string>((_resolve, reject) => { rejects.push(reject) }))
-      .mockResolvedValueOnce('pinned-resource')
+      .mockImplementationOnce(async () => await new Promise<void>((_resolve, reject) => { rejects.push(reject) }))
+      .mockImplementationOnce(async () => await new Promise<void>((_resolve, reject) => { rejects.push(reject) }))
+      .mockResolvedValueOnce(undefined)
     const firstClick = service.openFile(instanceId, file, true)
     const secondClick = service.openFile(instanceId, file, true)
     const doubleClick = service.openFile(instanceId, file, false)
     rejects[0]?.(new Error('preview superseded'))
     rejects[1]?.(new Error('preview instance replaced'))
     await Promise.all([firstClick, secondClick, doubleClick])
-    expect(resources.open).toHaveBeenNthCalledWith(3, expect.anything(), {
+    expect(resources.open).toHaveBeenNthCalledWith(3, expect.objectContaining({
       target: { fromInstanceId: instanceId, direction: 'right' }, preview: false,
-    })
+    }))
     expect(service.snapshot(instanceId).error).toBeUndefined()
   })
 
@@ -329,13 +327,13 @@ describe('FileManagerService', () => {
     await service.openFile(instanceId, link, true)
     expect(service.snapshot(instanceId)).toMatchObject({ selectedPath: link.path, error: 'first open failed' })
 
-    vi.mocked(resources.open).mockResolvedValueOnce('opened-resource')
+    vi.mocked(resources.open).mockResolvedValueOnce(undefined)
     await service.openFile(instanceId, link, true)
     expect(service.snapshot(instanceId).selectedPath).toBe(link.path)
     expect(service.snapshot(instanceId).error).toBeUndefined()
     expect(resources.open).toHaveBeenLastCalledWith(expect.objectContaining({
-      ref: expect.objectContaining({ resourceId: link.canonicalPath }),
-    }), expect.anything())
+      path: link.canonicalPath,
+    }))
 
     await vi.advanceTimersByTimeAsync(50)
     expect(service.snapshot(instanceId).selectedPath).toBe(link.path)

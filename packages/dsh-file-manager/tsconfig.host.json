@@ -19,10 +19,19 @@
     "rewriteRelativeImportExtensions": true,
     "verbatimModuleSyntax": false,
     "skipLibCheck": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "rootDir": "src",
     "outDir": "lib/types",
-    "tsBuildInfoFile": "lib/types/tsconfig.host.tsbuildinfo"
+    "tsBuildInfoFile": "lib/types/tsconfig.host.tsbuildinfo",
+    "noEmitOnError": true
   },
-  "include": ["src/index.ts", "src/remote.ts", "src/filesystem.ts", "src/types.ts", "src/trash.ts"]
+  "include": [
+    "src/index.ts",
+    "src/remote.ts",
+    "src/filesystem.ts",
+    "src/types.ts",
+    "src/trash.ts"
+  ]
 }

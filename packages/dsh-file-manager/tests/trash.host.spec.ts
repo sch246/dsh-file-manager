@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
+import { UserFileRemote, UserFileFilesystem, Config } from '@dsh-external/dsh-user-files'
 import { apply } from '../src/index.ts'
 import type { FileManagerRemote } from '../src/remote.ts'
 import { homeTrashDirectory } from '../src/trash.ts'
@@ -32,7 +33,8 @@ it.skipIf(process.platform !== 'linux')('mounts the Host with provider-owned tra
   const root = await mkdtemp(join(tmpdir(), 'dsh-manager-trash-'))
   const ctx = new Context()
   const fiber = ctx.plugin({ apply: (scope: Context) => {
-    apply(scope, { maxResolveBatchSize: 8, maxTextReadBytes: 1024, maxByteReadBytes: 4096, resourcePollIntervalMs: 1000, directoryPollIntervalMs: 1000, deleteMode: 'trash', moveCommand: 'mv' })
+    new UserFileRemote(scope, new UserFileFilesystem(1024, 4096), Config({}))
+    apply(scope, { directoryPollIntervalMs: 1000, deleteMode: 'trash', moveCommand: 'mv' })
   } })
   try {
     ctx.provide('sessions', { get: () => ({ header: { cwd: root } }) } as never)

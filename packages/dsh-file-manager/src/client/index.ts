@@ -5,6 +5,8 @@ import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
+import type {} from '@dsh-external/dsh-user-files/remote'
+import { openWorkspaceFile } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { RightSidebarService } from '@dsh-external/dsh-right-sidebar/client'
 import fileManagerRemote from '@dsh-external/dsh-file-manager/remote'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
@@ -14,10 +16,6 @@ import {
   FileManagerService,
   type FileManagerGateway,
 } from './service.ts'
-import {
-  FilesystemResourceSource,
-  type FilesystemSourceGateway,
-} from './source.ts'
 import { FILE_MANAGER_CSS } from './styles.ts'
 import { browserPreferenceStorage } from './preferences.ts'
 
@@ -28,8 +26,6 @@ export type {
 export {
   FileManagerService, filterLoadedTree, parseFileManagerRestoreDescriptor, parseFileManagerSelection,
 } from './service.ts'
-export type { FilesystemSourceGateway } from './source.ts'
-export { FilesystemResourceSource } from './source.ts'
 
 /** Required bootstrap service; feature dependencies wait for the generated namespace. */
 export const inject = ['remote']
@@ -49,7 +45,7 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
       await ctx.remote.fileManager.trashLocation({ sessionId }, signal),
     ),
     resolve: async (sessionId, path, signal) => valueOf(
-      await ctx.remote.fileManager.resolve({ sessionId, path }, signal),
+      await ctx.remote.userFiles.resolve({ sessionId, path }, signal),
     ),
     list: async (sessionId, path, showHidden, signal) => valueOf(
       await ctx.remote.fileManager.list({ sessionId, path, showHidden }, signal),
@@ -64,45 +60,23 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
       valueOf(await ctx.remote.fileManager.deleteEntry({ sessionId, path, mode, confirmed }, signal))
     },
   }
-  // Native opening is optional; its probe must not gate browser file management.
-  const nativeOpen = await ctx.remote.session.canOpenWorkspacePath().then(result => result.ok && result.value, () => false)
-  const sourceGateway: FilesystemSourceGateway = {
-    readText: async (sessionId, path, signal) => valueOf(
-      await ctx.remote.fileManager.readText({ sessionId, path }, signal),
-    ),
-    readBytes: async (sessionId, path, signal) => valueOf(
-      await ctx.remote.fileManager.readBytes({ sessionId, path }, signal),
-    ),
-    saveText: async (sessionId, path, text, version, signal) => valueOf(
-      await ctx.remote.fileManager.saveText({ sessionId, path, text, version }, signal),
-    ),
-    saveBytes: async (sessionId, path, dataBase64, version, signal) => valueOf(
-      await ctx.remote.fileManager.saveBytes({ sessionId, path, dataBase64, version }, signal),
-    ),
-    ...(nativeOpen
-      ? {
-          openExternal: async (_sessionId: SessionId, path: string, signal: AbortSignal): Promise<void> => {
-            valueOf(await ctx.remote.session.openWorkspacePath({ path }, signal))
-          },
-        }
-      : {}),
-  }
-  const source = new FilesystemResourceSource(sourceGateway, metadata.resourcePollIntervalMs)
-  const resources = ctx.resourceWorkbench
   const sidebar = ctx.rightSidebar as RightSidebarService
   const t = ctx.locale.bind(NS)
   const runtime = new FileManagerService(
     remoteGateway,
     sidebar,
-    resources,
-    source.id,
+    { open: request => openWorkspaceFile(ctx, request) },
     () => t('title'),
     metadata.directoryPollIntervalMs,
     metadata.deleteMode,
     browserPreferenceStorage,
   )
 
-  const unregisterSource = resources.registerSource(source)
+  const offDirectoryOpen = ctx.on('chat/open-workspace-file', async (request, next) => {
+    const resolved = valueOf(await ctx.remote.userFiles.resolve({ sessionId: request.sessionId, path: request.path }, request.signal))
+    if (resolved.kind !== 'directory') return next()
+    await runtime.open(request.sessionId, { path: resolved.path })
+  })
   const unregisterLauncher = sidebar.registerLauncher({
     id: 'file-manager',
     label: () => t('launcher'),
@@ -139,7 +113,7 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
     offView()
     offPresentation()
     unregisterLauncher()
-    unregisterSource()
+    offDirectoryOpen()
     runtime.dispose()
   }
 }
@@ -148,7 +122,7 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
   const disposeRemote = await ctx.remote.$mount(fileManagerRemote)
   const runtime = ctx.inject(
-    ['slots', 'locale', 'rightSidebar', 'resourceWorkbench', 'remote.fileManager', 'remote.session'],
+    ['slots', 'locale', 'rightSidebar', 'remote.userFiles', 'remote.fileManager', 'remote.session', 'sessions'],
     registerRuntime,
   )
   try {

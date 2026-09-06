@@ -1,6 +1,6 @@
 # Agent Note: Authenticated user filesystem manager
 
-Status: implemented
+Status: implemented; file-content and opening ownership superseded by [independent manager ownership](2026-09-06-independent-manager.md)
 
 ## Problem
 

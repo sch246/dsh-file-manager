@@ -1,18 +1,33 @@
 {
   "name": "@dsh-external/dsh-file-manager",
   "version": "0.1.0",
-  "description": "Authenticated Web file tree and filesystem resource source for DeepSeek Harness",
+  "description": "Authenticated Web file tree and directory management",
   "private": true,
   "license": "MIT",
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/types/index.d.ts",
   "exports": {
-    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
-    "./types": { "types": "./lib/types/types.d.ts", "default": "./lib/types/types.js" },
-    "./typert": { "types": "./lib/typert.host.d.ts", "default": "./lib/typert.host.js" },
-    "./remote": { "types": "./lib/typert.remote-client.d.ts", "default": "./lib/typert.remote-client.js" },
-    "./client": { "types": "./lib/types/client/index.d.ts", "default": "./lib/client.js" },
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./types": {
+      "types": "./lib/types/types.d.ts",
+      "default": "./lib/types/types.js"
+    },
+    "./typert": {
+      "types": "./lib/typert.host.d.ts",
+      "default": "./lib/typert.host.js"
+    },
+    "./remote": {
+      "types": "./lib/typert.remote-client.d.ts",
+      "default": "./lib/typert.remote-client.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
@@ -34,7 +49,9 @@
     "typecheck": "bash ../../scripts/typecheck.sh"
   },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "inject": [
@@ -43,28 +60,28 @@
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-ui-slots",
-        "@dsh-external/dsh-file-viewer",
-        "@dsh-external/dsh-right-sidebar"
+        "@dsh-external/dsh-right-sidebar",
+        "@dsh-external/dsh-user-files",
+        "@deepseek-ai/dsh-client-ui-chat"
       ]
     }
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.0-rc <5",
-    "@deepseek-ai/dsh-api-remotes": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-api-session-controller": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-locale": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-ui-renderer": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-client-ui-slots": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-session": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-session-persistence": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-typert-protocol": "0.1.2-alpha.2",
+    "@deepseek-ai/dsh-api-remotes": ">=0.1.2-alpha.2 <1",
+    "@deepseek-ai/dsh-api-session-controller": ">=0.1.2-alpha.2 <1",
+    "@deepseek-ai/dsh-client-locale": ">=0.1.2-alpha.2 <1",
+    "@deepseek-ai/dsh-client-ui-renderer": ">=0.1.2-alpha.2 <1",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.2-alpha.2 <1",
+    "@deepseek-ai/dsh-session": ">=0.1.2-alpha.2 <1",
+    "@deepseek-ai/dsh-typert-protocol": ">=0.1.2-alpha.2 <1",
     "@deepseek-ai/schemastery": ">=3.18.2 <4",
-    "@dsh-external/dsh-file-viewer": "0.1.0",
-    "@dsh-external/dsh-right-sidebar": "0.0.1",
-    "react": "^18.2.0"
+    "@dsh-external/dsh-right-sidebar": ">=0.0.1 <1",
+    "react": "^18.2.0",
+    "@dsh-external/dsh-user-files": "^0.1.0",
+    "@deepseek-ai/dsh-client-ui-chat": ">=0.1.2-alpha.2 <1"
   },
   "dependencies": {
-    "mime-types": "^3.0.2",
     "trash": "^10.0.0",
     "wsl-utils": "^0.4.0",
     "xdg-trashdir": "^3.1.0",

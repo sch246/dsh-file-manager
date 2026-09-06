@@ -3,7 +3,6 @@ import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RightSidebarService } from '@dsh-external/dsh-right-sidebar/client'
-import { ResourceSourceId } from '@dsh-external/dsh-file-viewer/client'
 import { describe, expect, it, vi } from 'vitest'
 import { FileManagerPanel, confirmFileManagerRemoval } from '../src/client/FileManagerPanel.tsx'
 import { FileManagerService, type FileManagerGateway } from '../src/client/service.ts'
@@ -45,7 +44,7 @@ it('exposes compact actions, remembers menu choices, and stops filtering without
     deleteEntry: vi.fn(),
   }
   const sidebar = { openInstance: vi.fn(), updateInstance: vi.fn() } as unknown as RightSidebarService
-  const manager = new FileManagerService(gateway, sidebar, { open: vi.fn() }, ResourceSourceId('filesystem'), () => 'Files', 60_000, 'trash', storage)
+  const manager = new FileManagerService(gateway, sidebar, { open: vi.fn() }, () => 'Files', 60_000, 'trash', storage)
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -132,7 +131,7 @@ it('renders one Delete action and uses the menu preference for trash, permanent 
     deleteEntry: vi.fn(async () => {}),
   }
   const sidebar = { openInstance: vi.fn(), updateInstance: vi.fn() } as unknown as RightSidebarService
-  const manager = new FileManagerService(gateway, sidebar, { open: vi.fn() }, ResourceSourceId('filesystem'), () => 'Files', 60_000, 'trash')
+  const manager = new FileManagerService(gateway, sidebar, { open: vi.fn() }, () => 'Files', 60_000, 'trash')
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)

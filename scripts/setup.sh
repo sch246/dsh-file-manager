@@ -20,6 +20,7 @@ run_plugin() {
 }
 
 verify_install() {
+  node "$ROOT/scripts/plan-user-files.mjs" verify "$PROFILE_DIR"
   run_plugin why "$PACKAGE"
   node - "$PROFILE_DIR/package.json" "$PACKAGE" <<'NODE'
 const manifest = require(process.argv[2])
@@ -45,7 +46,10 @@ case "$MODE" in
     ;;
   --install)
     DSH_CHECKOUT="$CHECKOUT" bash "$ROOT/scripts/build.sh"
-    run_plugin add "$PACKAGE_DIR"
+    PROVIDER_PLAN="$(node "$ROOT/scripts/plan-user-files.mjs" install "$PROFILE_DIR")"
+    PROVIDER_ARGS=()
+    if [ -n "$PROVIDER_PLAN" ]; then mapfile -t PROVIDER_ARGS <<< "$PROVIDER_PLAN"; fi
+    run_plugin add "${PROVIDER_ARGS[@]}" "$PACKAGE_DIR"
     verify_install
     echo "setup: installed $PACKAGE into profile $PROFILE"
     echo 'setup: no service restart was performed; the Bundle activates at the next externally managed start'

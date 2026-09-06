@@ -1,6 +1,6 @@
 # DeepSeek Harness File Manager
 
-`@dsh-external/dsh-file-manager` adds an authenticated Web file tree and the `filesystem` resource source used by `@dsh-external/dsh-file-viewer`. It is an out-of-tree Bundle for DeepSeek Harness `0.1.2-alpha.2`.
+`@dsh-external/dsh-file-manager` adds an authenticated Web file tree. It depends on sidebar and `@dsh-external/dsh-user-files`, and works without Viewer or Links.
 
 ## Behavior
 
@@ -10,8 +10,8 @@
 - Directories load lazily. Non-overlapping polling refreshes the current and expanded loaded directories while retaining expansion, selection, filter, and the mounted scroll container; failed listings remain visible with an error.
 - More contains browser-persisted Show hidden files, Move to trash when deleting, and Filter switches. Filter reveals an input only while enabled; disabling it stops filtering and retains each tree's query. The loaded-tree filter matches names and relative paths, keeps matching ancestors, and never scans unloaded directories as the user types.
 - Browser reload restores each tree's current root, expanded directories, selection, and filter query. The v2 descriptor excludes browser preferences; v1 navigation remains readable without restoring its hidden-entry value. Cleanup runs only after the sidebar authoritatively removes the instance.
-- Directory selections from resource locations launch or activate the tree. A file click selects the visible row while opening its canonical resource; single click requests a preview to the right of the tree, and double click requests a permanent tab through `ctx.resourceWorkbench.open()`.
-- The independent `@dsh-external/dsh-resource-links` plugin owns Chat path presentation and preview/system routing using this manager's metadata and Files launcher.
+- Directory selections from resource locations launch or activate the tree. A file click selects the visible row while opening its canonical resource; single click requests a preview to the right of the tree, and double click requests a permanent tab through the common Host `openWorkspaceFile()` request.
+- Manager handles directories in the common Host opening waterfall and delegates files. Without Viewer, unhandled files reach the native opener on the service-process machine; errors remain visible. Optional Links belongs to user-files.
 
 This browser capability intentionally does not use `ctx.fs`: agent sandbox and approval policy do not constrain authenticated user-interface filesystem operations. Deploy the Web Host under the operating-system account whose files the user is meant to manage.
 
@@ -23,28 +23,18 @@ The Bundle inserts:
 - id: dsh-file-manager
   name: '@dsh-external/dsh-file-manager'
   config:
-    maxResolveBatchSize: 128
-    maxTextReadBytes: 1048576
-    maxByteReadBytes: 16777216
-    resourcePollIntervalMs: 2000
     directoryPollIntervalMs: 2000
     deleteMode: trash
     moveCommand: mv
 ```
 
-`maxResolveBatchSize` caps metadata paths per request. `maxTextReadBytes` and `maxByteReadBytes` are separate inclusive complete-read and save limits. `resourcePollIntervalMs` delays text and byte source checks while subscribed; `directoryPollIntervalMs` delays loaded-directory refresh cycles. Polls schedule only after the preceding cycle completes. `deleteMode` initializes the browser's Move to trash preference only when no valid saved preference exists. Profile and Home patch layers replace a row's complete `config`, so preserve all fields when overriding one.
+`directoryPollIntervalMs` delays loaded-directory refresh cycles after the previous cycle completes. `deleteMode` initializes the browser preference only when no saved preference exists. Profile and Home patches replace complete config rows, so preserve unrelated fields when overriding one.
 
-## Resource reads and save guarantees
+## Filesystem ownership
 
-`fileManager.resolveMany({ sessionId, paths })` resolves up to `maxResolveBatchSize` paths using the same metadata operation as `resolve`. It preserves input order and duplicates in `{ inputPath, ok: true, value }` or `{ inputPath, ok: false, error: { code, message } }` results. One missing or inaccessible path does not discard other results. Oversized batches and cancellation reject the whole request. Neither operation reads file content.
-
-Metadata and directory listings use stat information and filename MIME lookup without reading file content. Byte reads accept arbitrary regular-file bytes within `maxByteReadBytes` and cross the JSON Remote as canonical base64 before the Client recreates `Uint8Array`. Text reads separately require UTF-8 without NUL bytes and stay within `maxTextReadBytes`. CRLF and CR are canonicalized to LF for the editor. The opaque revision retains the original EOL convention for text, an exact pattern for mixed-EOL input, content SHA-256, canonical path, and stat fields; editor text represents terminal-newline presence. Text save restores EOLs from that revision. Byte save preserves exact bytes. Both publish through the same same-directory staged writer.
-
-The source reports `supportsConditionalTextSave` and `supportsConditionalByteSave` with a bounded guarantee: writes issued by this plugin to one canonical resource are serialized, and every save rechecks the exact loaded hash/stat revision immediately before atomic replacement. Ordinary portable filesystems do not offer universal compare-and-swap against an uncooperative external writer in the interval between the last check and rename. Such a writer can still race publication.
+The shared user-files provider owns Session cwd resolution, canonical metadata, bounded text/byte reads and one guarded publication queue. Viewer owns the filesystem source and its resource polling. Manager owns directory listings, creation, moving and deletion; it uses shared canonical metadata while retaining the visible link path for mutation. See the provider's package reference for revision, EOL and content limits.
 
 Create operations use exclusive filesystem creation. Moves use the configured GNU `moveCommand` with `--no-clobber`, `--no-copy`, and `--no-target-directory`; a late destination cannot be replaced on the current Linux filesystem's no-replace rename path. Cross-filesystem moves and hosts without these GNU options fail without a copy/delete fallback. The default command is `mv`; configure its executable path when needed. See [GNU mv](https://www.gnu.org/s/coreutils/manual/html_node/mv-invocation.html).
-
-Staged saves restore permission bits. Replacing an inode can change ownership, access-control entries, extended attributes, and other filesystem-specific metadata; this editor does not promise to preserve those fields.
 
 ## Removal safety
 
@@ -57,13 +47,13 @@ Confirmation addresses the named path, not a retained inode. An external process
 ## Build and test
 
 ```bash
-pnpm install
+DSH_USER_FILES=/absolute/user-files-package DSH_SIDEBAR=/absolute/sidebar-package pnpm run install:local
 DSH_CHECKOUT=/root/deepseek-harness pnpm test
 DSH_CHECKOUT=/root/deepseek-harness pnpm typecheck
 DSH_CHECKOUT=/root/deepseek-harness pnpm build
 ```
 
-The Harness Typert generator must already be built and support `externalProjectReferences`.
+Repository-local tools are TypeScript 5.9.3, tsdown 0.22.14 and Vitest 4.1.8, with Vite 7.3.6 for standard decorator transformation. Normal manifests declare compatible dependency ranges. `install:local` accepts explicit package directories or versioned tarballs without recording sibling links in manifests or lockfiles. Build the shared provider and sidebar before manager. The selected Harness declarations and Typert generator must already be built with `externalProjectReferences`; `DSH_CHECKOUT` supplies those Host inputs only.
 
 ## Setup and uninstall
 
@@ -80,8 +70,8 @@ First installation is a high-risk Bundle change. Validate it in a private Home w
 
 ## Integration requirements
 
-- `@dsh-external/dsh-right-sidebar/client`: launcher and `rightbar.view` multi-instance APIs.
-- `@dsh-external/dsh-file-viewer/client`: `ctx.resourceWorkbench` source registration and handler-routed opening.
-- Harness Session Controller Client: optional native path opening for filesystem resources.
+- Sidebar provides launcher, tree placement and instance lifecycle APIs.
+- User-files provides one Host service, one Remote namespace and the common opening policy; its Bundle alone inserts the provider row.
+- Harness supplies `openWorkspaceFile`, Session and authenticated Remote APIs.
 
-The manager owns the filesystem Remote and source. The independent resource-links plugin consumes these APIs and owns Chat routing; the manager has no dependency on that consumer.
+Setup reuses a shared provider satisfying every installed consumer and the incoming manager's API range, or includes the missing provider in the same `dsh plugin add` transaction. An incompatible provider fails with its consumer/range. Manager removal retains sidebar and user-files. Shared-provider removal checks remaining consumer manifests. The [installation map](.intent/state/STATE.md) owns effective configuration and receipt migration.
