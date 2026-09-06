@@ -2,6 +2,26 @@
 
 Recorded deployment: compact source installed and activated under [the deployment log](../logs/2026-09-06-compact-ui-activation.md). This local STATE is an installation and behavior map, not the meta-intent protocol. The historical deployment establishes neither acceptance nor compatibility of a new target Host. [The compact manager log](../logs/2026-09-06-compact-manager.md) records implementation evidence.
 
+## Latest dependency target — migration pending
+
+The September 6, 2026 user instruction “可联动不意味着必依赖” establishes the target below. It takes precedence over earlier intended ownership statements. The installed dependency graph and operational instructions below describe the current implementation; runtime extraction, configuration migration and installation have not occurred. [The dependency decision log](../logs/2026-09-06-independent-feature-dependencies.md) records this documentation update.
+
+| Feature | Required target dependencies | Target ownership and optional cooperation |
+| --- | --- | --- |
+| Sidebar | Harness layout APIs | Layout, groups, tabs, previews, persistence and instance lifecycle only; no filesystem or feature-opening policy. |
+| Viewer | Sidebar and the shared authenticated UI filesystem provider | Owns the `filesystem` source, supported-file opening, text/image handlers, shared documents and drafts. Requires neither manager nor Links. The editor stays an internal plain dependency, not a separately chosen user feature. |
+| Manager | Sidebar and the same shared provider | Owns the tree, directory opening, navigation and mutations. Requires neither viewer nor Links; file clicks use the common Host opening entry. |
+| Shared filesystem package | Authenticated Harness UI/Remote APIs | Neutral service definition, one Node provider and generated Remote declarations; Session-relative resolution, metadata, text/bytes and revision-guarded saves. Proposed location: an independent package in the manager repository, separately built and distributed. That location creates no dependency on the manager feature. |
+| Optional Links toggle in the shared package | Shared filesystem access and Host text-link/opening APIs | Recognizes and confirms paths in Markdown inline code. Requires no sidebar, viewer or manager. Its toggle controls path decoration only; filesystem access and original session-file links remain available when disabled. |
+
+Authenticated user filesystem operations retain service-process permissions, independently of agent `ctx.fs`, sandbox and approval. The common provider owns one canonical-resource publication queue for text and byte saves, including revision checks; viewer documents own browser synchronization, not disk publication.
+
+All file clicks, including Chat links and manager rows, use the existing Host `chat/open-workspace-file` chain. Viewer handles supported files and manager handles directories. An unhandled request delegates to the native opener on the service-process machine; an error after a handler takes responsibility propagates without native fallback. Preserve preview, pin and open-to-the-right intent without exposing viewer internals to other features.
+
+Migration moves `FilesystemResourceSource` and `resourcePollIntervalMs` from manager to viewer; `directoryPollIntervalMs`, tree state and mutations remain in manager. Carry the effective configured resource interval into the complete viewer configuration row and remove it from the complete manager row without losing other fields. Replace manager's source registration, required workbench injection and direct viewer opening, and transfer the independent resource-links provider/Bundle to the shared package's optional Links implementation without duplicate registrations. Preserve the installed Links enablement and explicit opening behavior during configuration migration.
+
+Packages retain independent versions and declare compatible API/peer ranges; equal version numbers and synchronized releases are not requirements. Installation must resolve one shared provider and Bundle for all consumers, retain it while consumers need it, and reject incompatible ranges explicitly. Other repositories consume its independently built artifact rather than building the manager workspace. These are pending implementation requirements, not claims about the current setup scripts.
+
 ## Intent
 
 Provide an authenticated DeepSeek Harness Web file manager for browsing and editing the service process's user-visible filesystem. The browser UI uses Host process permissions and does not inherit agent filesystem confinement, sandbox approval, or tool policy. A Session cwd selects only the initial location; users may navigate elsewhere.
@@ -15,7 +35,7 @@ Source: Codex task **评估网页文件查看编辑能力 (2)**, conversation `0
 - September 5 20:52: “删除移动到回收站应该是文件管理器的一个选项，和显示隐藏文件夹是一个类型，删除一个按钮就够了”. One Delete follows a remembered preference instead of separate delete/trash buttons.
 - September 5 23:04: “它唯一需要常驻的只有路径” and “新建文件，新建文件夹，刷新，更多 这四个按钮”. The icons float horizontally over the first list row, usually `..`, and appear on hover; narrow panes move actions into More. More contains Show hidden files, Move to trash when deleting, Filter and Open trash. Switches remember their state, show a check when enabled, and Filter alone controls whether its input is visible. Open trash is requested because the user does not know where the provider stores it; the implemented Linux home-directory scope below is narrower than a full recovery interface.
 
-## Installation map
+## Current installation map
 
 ### Dependencies and owners
 
@@ -41,7 +61,7 @@ Manager uses public Host Remote and sidebar/workbench APIs and owns no Harness s
 
 The viewer repository retains a historical Chat waterfall patch. Resource-links carries an incremental Host adapter over that baseline and an exact ownership receipt; current manager scripts do not adopt or reverse either contribution. The [resource-links baseline preparation map](https://github.com/sch246/dsh-resource-links/blob/main/.intent/state/STATE.md#preparing-a-host-that-lacks-the-baseline) identifies the initial Chat symbols, separately owned Typert support and the adaptation/ownership record needed before installation on a new Host. An integrator must resolve overlapping historical Host changes with their recorded owners, not assign them to manager merely because it provides filesystem data. After a Host upgrade, rebuild against the selected declarations, check the Remote and Client registrations and verify the composed tree/resource flow. A package build alone does not establish Host-adapter compatibility or a functioning browser.
 
-## Stable behavior
+## Current implementation behavior
 
 - The `fileManager` Host Remote uses Node filesystem APIs and configurable GNU `mv` for no-clobber moves without copy/delete fallback. It lists directories lazily, follows symbolic links for navigation and resource identity, and retains the user-visible link path for move and deletion actions.
 - The Files launcher opens one tree instance per Session in the right-sidebar workbench. Address navigation, manual refresh, hidden entries, create, move/rename, and configured deletion are available from the tree. Non-overlapping automatic polling refreshes only the current and expanded loaded directories, stops on superseding work or disposal, retains reachable expansion and selection, and exposes per-directory failures without discarding the last successful listing.
@@ -57,7 +77,7 @@ The viewer repository retains a historical Chat waterfall patch. Resource-links 
 - Text and byte source watches poll only while subscribed, wait for each read before scheduling the next, and abort/clear their timer on disposal.
 - Regular-file links from the tree route through the central resource-opening service. A tree click selects and persists the visible row path while opening the canonical resource; single click requests a preview in the group to the right of the tree, and double click requests a permanent tab. A new attempt clears the preceding open error, and superseded preview failures stay hidden. Directory selections open the tree. The independent resource-links plugin owns Chat path presentation and preview/system routing; the manager supplies metadata and the Files selector without a Chat listener or routing policy.
 
-## Acceptance criteria
+## Current implementation acceptance criteria
 
 - `MANAGER-001`: Session cwd opens as the initial canonical directory, while absolute navigation outside it remains available.
 - `MANAGER-002`: Tree listing follows usable symlinks, supports hidden entries and lazy expansion, and routes regular files through the central resource opener to a stable group right of the tree; single click previews and double click pins.
