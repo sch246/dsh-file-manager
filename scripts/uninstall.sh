@@ -8,8 +8,12 @@ PROFILE_HOME="${DSH_HOME:?uninstall: set DSH_HOME to an explicit Harness home}"
 PROFILE="${DSH_PROFILE:?uninstall: set DSH_PROFILE to an explicit profile name}"
 MODE="${1:---check}"
 
+run_dsh() {
+  (cd "$CHECKOUT" && DSH_HOME="$PROFILE_HOME" node --import tsx/esm apps/cli/src/bin.ts "$@")
+}
+
 run_plugin() {
-  DSH_HOME="$PROFILE_HOME" pnpm --dir "$CHECKOUT" dsh plugin --profile "$PROFILE" "$@"
+  run_dsh plugin --profile "$PROFILE" "$@"
 }
 
 case "$MODE" in
@@ -27,7 +31,7 @@ case "$MODE" in
     echo 'uninstall: no service restart was performed'
     ;;
   *)
-    echo 'usage: pnpm run uninstall [--check|--remove]' >&2
+    echo 'usage: pnpm run remove [--check|--remove]' >&2
     exit 2
     ;;
 esac

@@ -1,5 +1,21 @@
 # DeepSeek Harness File Manager
 
+## Workspace operations
+
+The root is a development workspace; installable packages live under `packages/`. Run these root entries with prepared repository-local dependencies. `DSH_CHECKOUT` selects compatible Host source/declarations; profile operations also require explicit `DSH_HOME` and `DSH_PROFILE`.
+
+| Root entry | Direct command from this repository | Effect |
+| --- | --- | --- |
+| `build` | `bash scripts/build.sh` | Build owned package artifacts. |
+| `typecheck` | `bash scripts/typecheck.sh` | Check owned Host and Client programs. |
+| `setup` | `bash scripts/setup.sh` | Inspect by default; append `--install` for installation. |
+| `inspect` | `bash scripts/setup.sh --check` | Inspect only. |
+| `remove` | `bash scripts/uninstall.sh` | Inspect by default; append `--remove` for removal. |
+
+Build, typecheck and existing tests call installed Node tools directly; they never install dependencies. Tool versions are TypeScript 5.9.3, tsdown 0.22.14 and Vitest 4.1.8, with pnpm 10.17.1 declared for explicit dependency preparation. Use independent dependency directories when reusing existing package contents. Installation and removal retain the existing `dsh plugin` transactions and never restart services. The `uninstall` alias, where present, has the same inspection default as `remove`.
+
+Each repository and package keeps its own version: compatibility means satisfying declared API ranges, not equal version numbers. Optional cooperation does not make another feature a required dependency. Root and distributed package licenses are MIT, with their copyright notices retained.
+
 `@dsh-external/dsh-file-manager` adds an authenticated Web file tree. It depends on sidebar and `@dsh-external/dsh-user-files`, and works without Viewer or Links.
 
 ## Behavior
@@ -74,15 +90,15 @@ DSH_CHECKOUT=/root/deepseek-harness bash scripts/build.sh
 
 Repository-local tools are TypeScript 5.9.3, tsdown 0.22.14 and Vitest 4.1.8, with Vite 7.3.6 for standard decorator transformation. Normal manifests declare compatible dependency ranges. `install:local` accepts explicit package directories or versioned tarballs, including optional `DSH_FILE_DROP` for local development declarations, without recording sibling links in manifests or lockfiles. Build the shared provider and sidebar before manager; development compilation also needs the optional file-drop package declarations. Build/typecheck scripts invoke installed Node tool entrypoints directly, without a package-manager install step. Keep candidate resolver directories independent when reusing installed dependency contents. The selected Harness declarations and Typert generator must already be built with `externalProjectReferences`; `DSH_CHECKOUT` supplies those Host inputs only.
 
-## Setup and uninstall
+## Setup and removal
 
 All lifecycle commands require explicit targets and inspect by default:
 
 ```bash
 DSH_CHECKOUT=/root/deepseek-harness DSH_HOME=/tmp/private-dsh-home DSH_PROFILE=web pnpm run setup
 DSH_CHECKOUT=/root/deepseek-harness DSH_HOME=/tmp/private-dsh-home DSH_PROFILE=web pnpm run setup --install
-DSH_CHECKOUT=/root/deepseek-harness DSH_HOME=/tmp/private-dsh-home DSH_PROFILE=web pnpm run uninstall
-DSH_CHECKOUT=/root/deepseek-harness DSH_HOME=/tmp/private-dsh-home DSH_PROFILE=web pnpm run uninstall --remove
+DSH_CHECKOUT=/root/deepseek-harness DSH_HOME=/tmp/private-dsh-home DSH_PROFILE=web pnpm run remove
+DSH_CHECKOUT=/root/deepseek-harness DSH_HOME=/tmp/private-dsh-home DSH_PROFILE=web pnpm run remove --remove
 ```
 
 First installation is a high-risk Bundle change. Validate it in a private Home with the intended sibling package set and cold Web boot before targeting a managed profile. Scripts call `dsh plugin` so manifest, lockfile, resolution, and Bundle membership move together; they never apply Harness patches or restart a service.

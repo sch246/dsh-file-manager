@@ -15,8 +15,12 @@ if [ ! -f "$CHECKOUT/package.json" ] || ! git -C "$CHECKOUT" rev-parse --is-insi
   exit 1
 fi
 
+run_dsh() {
+  (cd "$CHECKOUT" && DSH_HOME="$PROFILE_HOME" node --import tsx/esm apps/cli/src/bin.ts "$@")
+}
+
 run_plugin() {
-  DSH_HOME="$PROFILE_HOME" pnpm --dir "$CHECKOUT" dsh plugin --profile "$PROFILE" "$@"
+  run_dsh plugin --profile "$PROFILE" "$@"
 }
 
 verify_install() {
@@ -31,7 +35,7 @@ if (bundles.filter(value => value === name).length !== 1) throw new Error(`profi
 NODE
   grep -Fq "$PACKAGE" "$PROFILE_DIR/pnpm-lock.yaml"
   test "$(realpath "$PROFILE_DIR/node_modules/$PACKAGE")" = "$(realpath "$PACKAGE_DIR")"
-  DSH_HOME="$PROFILE_HOME" pnpm --dir "$CHECKOUT" dsh --profile "$PROFILE" --dump-config | grep -Fq "$PACKAGE"
+  run_dsh --profile "$PROFILE" --dump-config | grep -Fq "$PACKAGE"
 }
 
 case "$MODE" in

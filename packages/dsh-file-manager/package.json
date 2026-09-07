@@ -42,7 +42,8 @@
     "lib/typert.remote-client.js",
     "lib/typert.remote-client.d.ts",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "bash ../../scripts/build.sh",

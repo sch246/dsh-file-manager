@@ -8,10 +8,12 @@
   "scripts": {
     "build": "bash scripts/build.sh",
     "typecheck": "bash scripts/typecheck.sh",
-    "test": "vitest run packages/dsh-file-manager/tests",
+    "test": "node node_modules/vitest/vitest.mjs run packages/dsh-file-manager/tests",
     "setup": "bash scripts/setup.sh",
     "uninstall": "bash scripts/uninstall.sh",
-    "install:local": "node scripts/install-local.mjs"
+    "install:local": "node scripts/install-local.mjs",
+    "inspect": "bash scripts/setup.sh --check",
+    "remove": "bash scripts/uninstall.sh"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.0-rc",
