@@ -12,6 +12,8 @@ const overrides = Object.fromEntries([
   if (!value) throw new Error(`install-local: set ${key} to a package directory or tarball`)
   return [name, `${value.endsWith('.tgz') ? 'file' : 'link'}:${resolve(value)}`]
 }))
+const fileDrop = process.env.DSH_FILE_DROP
+if (fileDrop) overrides['@dsh-external/dsh-file-drop'] = `${fileDrop.endsWith('.tgz') ? 'file' : 'link'}:${resolve(fileDrop)}`
 const temporary = mkdtempSync(join(tmpdir(), 'dsh-manager-install-'))
 try {
   const hook = join(temporary, 'pnpmfile.cjs')

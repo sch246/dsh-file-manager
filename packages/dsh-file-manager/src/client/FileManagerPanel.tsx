@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from 'react'
 import type { FileManagerDeleteMode, FileManagerDirectory, FileManagerEntry } from '../types.ts'
+import { FileManagerDropOverlay, type WatchFileDrop } from './FileManagerDropOverlay.tsx'
 import type { FileManagerLocaleKey } from './locales.ts'
 import {
   filterLoadedTree, isInsideTrash, isTrashRecord,
@@ -9,6 +10,7 @@ import {
 /** Actions and observable state injected for one tree instance. */
 export interface FileManagerPanelInjected {
   readonly manager: FileManagerService
+  readonly watchFileDrop?: WatchFileDrop
   prompt(message: string, initial?: string): string | null
   confirm(message: string): boolean
   t(key: FileManagerLocaleKey): string
@@ -228,7 +230,7 @@ function DirectoryActions({ actions, snapshot, create, upload }: {
 }
 
 /** Render an Enter-navigable path and tree with first-row actions and optional filtering. */
-export function FileManagerPanel({ manager, instanceId, prompt, confirm, t }: FileManagerPanelProps) {
+export function FileManagerPanel({ manager, instanceId, prompt, confirm, t, watchFileDrop }: FileManagerPanelProps) {
   const actions: FileManagerPanelActions = {
     manager,
     prompt,
@@ -254,7 +256,7 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t }: Fi
   }
   const snapshot = useSyncExternalStore(actions.subscribe, actions.snapshot, actions.snapshot)
   const uploadInput = useRef<HTMLInputElement>(null)
-  useEffect(() => manager.registerFileDrop(instanceId), [manager, instanceId])
+  const panel = useRef<HTMLElement>(null)
   const visiblePaths = filterLoadedTree(snapshot)
   const [address, setAddress] = useState(snapshot.address)
   useEffect(() => { setAddress(snapshot.address) }, [snapshot.address])
@@ -267,7 +269,7 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t }: Fi
     if (name !== null && name !== '') actions.create(name, kind)
   }
   return (
-    <section className="dsh-file-manager-root">
+    <section ref={panel} className="dsh-file-manager-root">
       <form className="dsh-file-manager-address" onSubmit={submit}>
         <input aria-label={actions.t('address')} value={address} onChange={event => { setAddress(event.currentTarget.value) }} spellCheck={false} />
       </form>
@@ -323,6 +325,9 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t }: Fi
           </div>
         </div>
       )}
+      {watchFileDrop !== undefined && manager.transfersAvailable && <FileManagerDropOverlay
+        manager={manager} instanceId={instanceId} panel={panel} directory={snapshot.directory?.path} watchFileDrop={watchFileDrop} t={t}
+      />}
     </section>
   )
 }

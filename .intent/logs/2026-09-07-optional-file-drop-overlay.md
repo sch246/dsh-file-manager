@@ -1,0 +1,24 @@
+# Optional file-drop integration and manager overlay
+
+The user's September 7 clarification selects a standalone native-file drop plugin and a manager-owned Chat-style upload invitation, including an SVG illustration. File-drop integration must remain optional where possible. Manager 0.1.2 declares `@dsh-external/dsh-file-drop` ^0.1.0 as an optional peer and a development-only type dependency; its Bundle and required Client module dependencies do not load that plugin. Sidebar compatibility returns to >=0.0.1 because manager consumes no sidebar file-drop API.
+
+## Ownership and lifecycle
+
+Each mounted manager panel observes `ctx.fileDrop` through an unawaited optional Cordis injection. Missing provider availability cannot delay manager activation. A later provider registers existing panel roots; provider or panel removal disposes the region and clears its hover state. The ordinary upload and download buttons retain their independent transfer adapter. The removed manager `registerFileDrop()` delegation and sidebar `registerFileDropHandler()` consumption have no retained fallback path.
+
+The standalone plugin owns native Files routing and exclusive deepest-region selection. Manager owns its full group-content region, readiness checks, intake and display. Its panel root excludes sidebar tabs. A region rejects drops during foreground operations or while its directory is unready, so a second drop cannot silently replace an active upload. Accepted drops use the displayed directory and existing streaming, exclusive-publication and cancellation pipeline.
+
+The visual layer uses Chat's mask/label/font tokens and blur treatment, with a manager-owned inline SVG combining document cards, a folder and an upload arrow. It shows the current destination while accepted and a localized blocked invitation otherwise. The overlay is positioned inside the panel and ignores pointer events, retaining the underlying region as the drag target. No raster generation or global overlay is involved.
+
+## Candidate preparation and checks
+
+This change is isolated in `/root/dsh-drop-plugin-apply/manager`, based on `2e39e104cb30884a9765f63f7541c2f133793098`. The candidate owns its resolver directories and links their leaves to existing dependency contents; no package-manager command runs against shared dependencies. Build and typecheck scripts now call installed TypeScript and tsdown Node entrypoints directly. `install:local` accepts an optional explicit `DSH_FILE_DROP` development override, but the installation helper is not executed.
+
+- `node /root/deepseek-harness/node_modules/vitest/vitest.mjs run packages/dsh-file-manager/tests/file-drop.client.spec.tsx`: 1 focused lifecycle test passed. It exercises absence, later mount, hover readiness, destination/SVG output, drop/error forwarding, removal and remount with cleanup. The runner reported its existing esbuild/oxc option warning.
+- `node --check scripts/install-local.mjs`: passed.
+- `DSH_CHECKOUT=/root/deepseek-harness bash scripts/build.sh`: Host compilation, bundle and Typert generation passed; Client compilation initially failed because the new file-drop declaration entry omitted a retained reference to the Cordis definition module. Resolution traces and compiler-symbol inspection identified missing Cordis core augmentations; trying the selected Host TypeScript 6.0.3 compiler produced the same errors. The file-drop owner fixed its emitted type entry by explicitly re-exporting Cordis Context. No manager cast or alternate runtime path is added.
+- `node node_modules/typescript/bin/tsc -p packages/dsh-file-manager/tsconfig.client.json --pretty false`: passed after that declaration fix, using the pinned TypeScript 5.9.3 compiler.
+- From `packages/dsh-file-manager`, `node ../../node_modules/tsdown/dist/run.mjs --config tsdown.client.config.ts`: passed. The complete stage sequence emits Host 32.52 kB and Client 255.19 kB bundles plus declarations and generated Remotes. Existing tsdown external/noExternal deprecation warnings remain.
+- Python artifact assertions verified all six required build outputs, the optional peer metadata, absence from required dependencies/Client injection/Bundle, no runtime import of the optional plugin in the browser bundle, and no remaining sidebar `registerFileDropHandler` consumption. `git diff --check` and `git diff --cached --check` passed.
+
+No install, live source/profile update, service restart, push, A/B, private-Home probe or browser automation is performed by this worker. The actual drag appearance remains a manual UI check: confirm the blurred invitation and current directory appear only in the hovered manager content, with tabs excluded and ordinary uploads retained after optional-plugin removal. Existing streaming transport and exclusive publication code are unchanged.

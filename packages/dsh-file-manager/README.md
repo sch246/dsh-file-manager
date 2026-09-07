@@ -25,8 +25,9 @@ Open trash browses the provider's Linux home files directory without creating it
 | `src/transfers.ts` | Cookie-authenticated raw streaming, exclusive upload publication and transfer cleanup. |
 | `src/remote.ts` | Directory Remote and typed management failures. |
 | `src/client/service.ts` | Tree state, directory polling, restoration and common opening requests. |
+| `src/client/FileManagerDropOverlay.tsx` | Optional region lifecycle, readiness feedback and manager-owned upload illustration. |
 | `src/client/index.ts` | Directory listener, Files launcher and tree view registration. |
 
-When native workspace opening is unavailable for this connection, Upload and regular-file Download appear; active manager group drops upload into the displayed root. Sidebar >=0.0.2 supplies the instance drop handler. The repository [transfer reference](../../README.md#browser-transfers) owns visibility, cancellation, publication, HTTP and reverse-proxy requirements.
+When native workspace opening is unavailable for this connection, Upload and regular-file Download appear; with optional `@dsh-external/dsh-file-drop` ^0.1.0, drops on the visible manager panel upload into the displayed root. Manager owns the blurred overlay, SVG illustration, destination copy and readiness check. Missing or removed file-drop leaves button transfers and browsing available; sidebar has no file-intake responsibility. The repository [transfer reference](../../README.md#browser-transfers) owns visibility, cancellation, publication, HTTP and reverse-proxy requirements.
 
 The Bundle registers no model-facing tool, prompt section or Session event. A private-Home composition and browser run remain separate from source and artifact tests.

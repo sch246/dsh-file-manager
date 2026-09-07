@@ -41,7 +41,11 @@ Create operations use exclusive filesystem creation. Moves use the configured GN
 
 Upload and per-file Download appear when the public Host facts do not report both a loopback connection and an available native workspace opener (`remote.$host.isLoopback` and `session.canOpenWorkspacePath()`). Upload sits alongside the creation actions and moves into More in narrow panes; Download sits immediately left of Delete for regular files. The filter has no loaded-folder helper text; filtering still searches loaded entries only.
 
-Upload accepts multiple selected files or files dropped on the active manager group's content. It captures the displayed root directory, streams files sequentially, and creates each original filename exclusively. Expanded folders do not change the destination. Navigation, superseding operations and committed tree close cancel unfinished uploads; files already published remain. The first failed file stops the batch and appears in the tree error area. Sidebar 0.0.2 or newer owns group targeting and drag consumption; manager registers its mounted tree and owns upload semantics.
+Upload accepts multiple selected files. With the optional `@dsh-external/dsh-file-drop` plugin, it also accepts files dropped on the visible manager panel. It captures the displayed root directory, streams files sequentially, and creates each original filename exclusively. Expanded folders do not change the destination. Navigation, superseding operations and committed tree close cancel unfinished uploads; files already published remain. The first failed file stops the batch and appears in the tree error area. The optional plugin owns native-file event routing; manager owns its panel region, acceptance, upload behavior and visual feedback.
+
+The manager panel covers only its group content, excluding sidebar tabs. During a targeted drag it shows a translucent blurred layer, an SVG file/folder upload illustration, and the displayed destination path. A busy or unready directory shows a blocked invitation and rejects the drop. Pointer events continue to reach the region beneath the decoration. The plugin routes the deepest matching region exclusively; other groups and Chat do not receive that drop.
+
+File-drop is an optional peer (`^0.1.0`), absent from manager's Bundle and required Client injection list. Install its independent Bundle only when drag upload is wanted. Manager uses an unawaited optional service subscription for each mounted panel, so a missing, later-loaded or removed provider never disables browsing, button upload or download. Removing the provider clears the overlay and unregisters its regions; removing manager retains the standalone plugin for other consumers. The standalone plugin depends on no manager, sidebar or Viewer feature.
 
 The exact `/api/file-manager/transfer` route uses the same `connection.requestRejection()` Host/Origin and cookie authentication as user-files Remote calls. PUT streams raw bytes into a private temporary directory on the destination filesystem, then publishes through the shared mutation queue using a no-clobber hard link. Failures and cancellation remove staging data; filesystems without hard-link support fail visibly without a fallback. `maxUploadBytes` defaults to 10 GiB per file and is checked before known-length uploads and while streaming every body. It is independent of provider text/byte read limits and the JSON gateway body limit. A completed publication remains a filesystem operation even if the browser disconnects before acknowledgement.
 
@@ -62,13 +66,13 @@ Confirmation addresses the named path, not a retained inode. An external process
 ## Build and test
 
 ```bash
-DSH_USER_FILES=/absolute/user-files-package DSH_SIDEBAR=/absolute/sidebar-package pnpm run install:local
-DSH_CHECKOUT=/root/deepseek-harness pnpm test
-DSH_CHECKOUT=/root/deepseek-harness pnpm typecheck
-DSH_CHECKOUT=/root/deepseek-harness pnpm build
+DSH_USER_FILES=/absolute/user-files-package DSH_SIDEBAR=/absolute/sidebar-package DSH_FILE_DROP=/absolute/file-drop-package pnpm run install:local
+DSH_CHECKOUT=/root/deepseek-harness node node_modules/vitest/vitest.mjs run packages/dsh-file-manager/tests
+DSH_CHECKOUT=/root/deepseek-harness bash scripts/typecheck.sh
+DSH_CHECKOUT=/root/deepseek-harness bash scripts/build.sh
 ```
 
-Repository-local tools are TypeScript 5.9.3, tsdown 0.22.14 and Vitest 4.1.8, with Vite 7.3.6 for standard decorator transformation. Normal manifests declare compatible dependency ranges. `install:local` accepts explicit package directories or versioned tarballs without recording sibling links in manifests or lockfiles. Build the shared provider and sidebar before manager. The selected Harness declarations and Typert generator must already be built with `externalProjectReferences`; `DSH_CHECKOUT` supplies those Host inputs only.
+Repository-local tools are TypeScript 5.9.3, tsdown 0.22.14 and Vitest 4.1.8, with Vite 7.3.6 for standard decorator transformation. Normal manifests declare compatible dependency ranges. `install:local` accepts explicit package directories or versioned tarballs, including optional `DSH_FILE_DROP` for local development declarations, without recording sibling links in manifests or lockfiles. Build the shared provider and sidebar before manager; development compilation also needs the optional file-drop package declarations. Build/typecheck scripts invoke installed Node tool entrypoints directly, without a package-manager install step. Keep candidate resolver directories independent when reusing installed dependency contents. The selected Harness declarations and Typert generator must already be built with `externalProjectReferences`; `DSH_CHECKOUT` supplies those Host inputs only.
 
 ## Setup and uninstall
 
@@ -85,7 +89,8 @@ First installation is a high-risk Bundle change. Validate it in a private Home w
 
 ## Integration requirements
 
-- Sidebar provides launcher, tree placement and instance lifecycle APIs.
+- Sidebar >=0.0.1 provides launcher, tree placement and instance lifecycle APIs.
+- Optional file-drop provides DOM-region registration and native-file routing; manager owns the target overlay and intake.
 - User-files provides one Host service, one Remote namespace and the common opening policy; its Bundle alone inserts the provider row.
 - Harness supplies `openWorkspaceFile`, Session and authenticated Remote APIs.
 

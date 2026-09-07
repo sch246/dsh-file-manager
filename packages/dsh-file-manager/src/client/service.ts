@@ -513,14 +513,19 @@ export class FileManagerService {
     await this.#mutate(record, signal => transfers.download(record.snapshot.sessionId, path, signal))
   }
 
-  /** Register the mounted tree as the sidebar group's active file destination. @param instanceId Mounted tree. @returns Disposer removing its drop handler. */
-  registerFileDrop(instanceId: string): () => void {
-    const record = this.#record(instanceId)
-    if (this.transfers === undefined) return () => {}
-    return this.#sidebar.registerFileDropHandler(record.snapshot.sessionId, instanceId, {
-      canAccept: () => this.#records.get(instanceId) === record && record.snapshot.status === 'ready',
-      drop: request => this.upload(instanceId, request.files),
-    })
+  /** Whether a live tree can accept a drop without interrupting foreground work. @param instanceId Destination tree. @returns True only when browser transfers and its current directory are ready. */
+  canUpload(instanceId: string): boolean {
+    const record = this.#records.get(instanceId)
+    return this.transfersAvailable && record !== undefined && record.controller === undefined
+      && record.snapshot.status === 'ready' && record.snapshot.directory !== undefined
+  }
+
+  /** Retain a drop-dispatch failure while its tree remains open. @param instanceId Owning tree. @param error Failure reported by the optional dispatcher. */
+  reportDropError(instanceId: string, error: unknown): void {
+    const record = this.#records.get(instanceId)
+    if (record === undefined) return
+    record.snapshot = { ...record.snapshot, error: messageOf(error) }
+    this.#notify(record)
   }
 
   /** Move or rename one entry, refusing overwrite in the Host. */

@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
+import type { IFileDrop } from '@dsh-external/dsh-file-drop/types'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
@@ -101,12 +102,21 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
     document.head.appendChild(style)
     return () => { offLocale(); style.remove() }
   }, 'file-manager: locale and styles')
+  const watchFileDrop = (listener: (provider: IFileDrop | undefined) => void): (() => void) => {
+    let live = true
+    const optional = ctx.inject(['fileDrop'], scope => {
+      if (live) listener(scope.fileDrop)
+      return () => { if (live) listener(undefined) }
+    })
+    return () => { live = false; void optional.dispose() }
+  }
   const offView = ctx.slots.inject('rightbar.view', () => ctx.slots.register({
     name: 'rightbar.view',
     id: 'file-manager-tree',
     locale: NS,
     inject: (_sessionId): FileManagerPanelInjected => ({
       manager: runtime,
+      watchFileDrop,
       prompt: (message, initial) => window.prompt(message, initial),
       confirm: message => window.confirm(message),
       t,

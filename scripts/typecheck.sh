@@ -16,6 +16,6 @@ rm -f "$ROOT/harness"
 ln -s "$CHECKOUT" "$ROOT/harness"
 
 cd "$ROOT"
-pnpm exec tsc -p packages/dsh-file-manager/tsconfig.host.json --pretty false --noEmit
+node "$ROOT/node_modules/typescript/bin/tsc" -p packages/dsh-file-manager/tsconfig.host.json --pretty false --noEmit
 node "$ROOT/scripts/generate-typert-host.mjs"
-pnpm exec tsc -p packages/dsh-file-manager/tsconfig.client.json --pretty false --noEmit
+node "$ROOT/node_modules/typescript/bin/tsc" -p packages/dsh-file-manager/tsconfig.client.json --pretty false --noEmit

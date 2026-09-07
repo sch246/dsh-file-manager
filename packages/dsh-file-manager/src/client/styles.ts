@@ -1,6 +1,6 @@
 /** Scoped browser styles for the file-manager tree. */
 export const FILE_MANAGER_CSS = `
-.dsh-file-manager-root{display:flex;flex-direction:column;height:100%;min-height:0;container-type:inline-size;color:var(--dsh-fg,currentColor);font:13px/1.4 system-ui,sans-serif}
+.dsh-file-manager-root{position:relative;isolation:isolate;display:flex;flex-direction:column;height:100%;min-height:0;container-type:inline-size;color:var(--dsh-fg,currentColor);font:13px/1.4 system-ui,sans-serif}
 .dsh-file-manager-address{display:flex;gap:6px;padding:8px;border-bottom:1px solid color-mix(in srgb,currentColor 16%,transparent)}
 .dsh-file-manager-address input{min-width:0;flex:1;padding:5px 7px}
 .dsh-file-manager-trash-scope{padding:6px 8px;font-size:12px;color:color-mix(in srgb,currentColor 65%,transparent)}
@@ -25,4 +25,10 @@ export const FILE_MANAGER_CSS = `
 .dsh-file-manager-entry{position:relative}.dsh-file-manager-row-actions{display:flex;position:absolute;right:4px;top:50%;transform:translateY(-50%);opacity:0;pointer-events:none;background:var(--dsw-alias-bg-layer-1,#fff);border-radius:5px}.dsh-file-manager-row-action{font-size:11px}.dsh-file-manager-entry:hover .dsh-file-manager-row-actions,.dsh-file-manager-entry:focus-within .dsh-file-manager-row-actions{opacity:1;pointer-events:auto}.dsh-file-manager-row-action.is-danger{color:#b42318}
 .dsh-file-manager-state{padding:16px;color:color-mix(in srgb,currentColor 65%,transparent)}.dsh-file-manager-error{display:flex;gap:8px;align-items:flex-start;padding:8px;background:#fef3f2;color:#b42318}.dsh-file-manager-error span{flex:1;overflow-wrap:anywhere}.dsh-file-manager-parent{display:block;width:100%;padding:5px 12px;border:0;background:transparent;color:inherit;text-align:start}
 .dsh-file-manager-root button,.dsh-file-manager-root input{font:inherit}.dsh-file-manager-root button{cursor:pointer;border:0;border-radius:5px;padding:4px 6px;background:transparent;color:inherit}.dsh-file-manager-root button:hover{background:color-mix(in srgb,currentColor 8%,transparent)}.dsh-file-manager-root button:disabled{cursor:default;opacity:.55}.dsh-file-manager-root input:not([type=checkbox]){border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:6px;background:transparent;color:inherit}.dsh-file-manager-name svg{flex:none}.dsh-file-manager-name{height:29px}
+.dsh-file-manager-drop-overlay{position:absolute;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;pointer-events:none;background:var(--dsw-alias-bg-mask-drop,#eef3ffcc);backdrop-filter:blur(10px);border:2px dashed color-mix(in srgb,#3964fe 45%,transparent);border-radius:8px}
+.dsh-file-manager-drop-message{display:flex;flex-direction:column;align-items:center;min-width:0;padding:24px;text-align:center;color:var(--dsw-alias-label-primary,currentColor)}
+.dsh-file-manager-drop-illustration{width:120px;height:88px;flex:none}
+.dsh-file-manager-drop-overlay[data-accepted=false] .dsh-file-manager-drop-illustration{filter:grayscale(.65)}
+.dsh-file-manager-drop-title{margin-top:16px;font:var(--dsw-font-l-20,500 20px/1.4 system-ui)}
+.dsh-file-manager-drop-destination{display:flex;flex-direction:column;gap:4px;max-width:100%;margin-top:12px;font:var(--dsw-font-s-14,14px/1.5 system-ui);color:var(--dsw-alias-label-tertiary,currentColor);overflow-wrap:anywhere}
 `
