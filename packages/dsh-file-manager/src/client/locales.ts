@@ -8,8 +8,8 @@ export type FileManagerLocaleKey =
   | 'movePrompt' | 'trash' | 'delete' | 'permanentDeletePrompt' | 'trashDeletePrompt'
   | 'restore' | 'clearError'
   | 'loading' | 'empty' | 'expand' | 'collapse' | 'openDirectory' | 'openFile'
-  | 'filter' | 'filterPlaceholder' | 'filterScope' | 'clearFilter' | 'noFilterResults'
-  | 'refreshFailed'
+  | 'filter' | 'filterPlaceholder' | 'clearFilter' | 'noFilterResults'
+  | 'refreshFailed' | 'upload' | 'download'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -47,10 +47,11 @@ export const en: Record<FileManagerLocaleKey, string> = {
   openFile: 'Open resource',
   filter: 'Filter',
   filterPlaceholder: 'Name or relative path',
-  filterScope: 'Loaded folders only',
   clearFilter: 'Clear filter',
   noFilterResults: 'No loaded items match this filter.',
   refreshFailed: 'Automatic refresh failed',
+  upload: 'Upload files',
+  download: 'Download',
 }
 
 export const zh: Record<FileManagerLocaleKey, string> = {
@@ -82,8 +83,9 @@ export const zh: Record<FileManagerLocaleKey, string> = {
   openFile: '打开资源',
   filter: '筛选',
   filterPlaceholder: '名称或相对路径',
-  filterScope: '仅已加载文件夹',
   clearFilter: '清除筛选',
   noFilterResults: '已加载项目中没有匹配项。',
   refreshFailed: '自动刷新失败',
+  upload: '上传文件',
+  download: '下载',
 }

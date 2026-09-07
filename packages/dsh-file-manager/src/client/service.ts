@@ -1,3 +1,4 @@
+import type { FileManagerTransfers } from './transfers.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ChatFileOpenRequest } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { UserFileResolvedPath } from '@dsh-external/dsh-user-files/types'
@@ -219,7 +220,7 @@ export class FileManagerService {
   readonly #records = new Map<string, RecordState>()
   #disposed = false
 
-  /** @param gateway - Filesystem operations. @param sidebar - Workbench instance host. @param resources - Generic resource opener. @param title - Localized tree title. @param directoryPollIntervalMs - Delay after each directory polling cycle. @param deleteMode - Initial deletion preference. @param preferenceStorage - Browser preference persistence, separate from tree restoration. @param trashDirectory Provider-resolved home trash files directory. */
+  /** @param gateway - Filesystem operations. @param sidebar - Workbench instance host. @param resources - Generic resource opener. @param title - Localized tree title. @param directoryPollIntervalMs - Delay after each directory polling cycle. @param deleteMode - Initial deletion preference. @param preferenceStorage - Browser preference persistence, separate from tree restoration. @param trashDirectory Provider-resolved home trash files directory. @param transfers Browser transfer adapter when native opening is unavailable. */
   constructor(
     gateway: FileManagerGateway,
     sidebar: RightSidebarService,
@@ -229,6 +230,7 @@ export class FileManagerService {
     deleteMode: FileManagerDeleteMode,
     preferenceStorage?: FileManagerPreferenceStorage,
     trashDirectory?: string,
+    private readonly transfers?: FileManagerTransfers,
   ) {
     this.#gateway = gateway
     this.#sidebar = sidebar
@@ -489,6 +491,36 @@ export class FileManagerService {
     await this.#mutate(record, signal => this.#gateway.create(
       record.snapshot.sessionId, record.snapshot.address, name, kind, signal,
     ))
+  }
+
+  /** Whether this runtime exposes browser file transfers. */
+  get transfersAvailable(): boolean { return this.transfers !== undefined }
+
+  /** Upload into the displayed root captured at selection/drop time; navigation and close cancel unfinished files. @param instanceId Destination tree. @param files Selected browser files. @returns Completion, with failures retained in the tree. */
+  async upload(instanceId: string, files: readonly File[]): Promise<void> {
+    const record = this.#record(instanceId)
+    const directory = record.snapshot.directory?.path
+    if (this.transfers === undefined || directory === undefined) return
+    const transfers = this.transfers
+    await this.#mutate(record, signal => transfers.upload(record.snapshot.sessionId, directory, files, signal))
+  }
+
+  /** Hand a regular-file download to the browser after an authenticated metadata check. @param instanceId Owning tree. @param path Visible file path. @returns Handoff completion; the browser owns subsequent progress and cancellation. */
+  async download(instanceId: string, path: string): Promise<void> {
+    const record = this.#record(instanceId)
+    if (this.transfers === undefined) return
+    const transfers = this.transfers
+    await this.#mutate(record, signal => transfers.download(record.snapshot.sessionId, path, signal))
+  }
+
+  /** Register the mounted tree as the sidebar group's active file destination. @param instanceId Mounted tree. @returns Disposer removing its drop handler. */
+  registerFileDrop(instanceId: string): () => void {
+    const record = this.#record(instanceId)
+    if (this.transfers === undefined) return () => {}
+    return this.#sidebar.registerFileDropHandler(record.snapshot.sessionId, instanceId, {
+      canAccept: () => this.#records.get(instanceId) === record && record.snapshot.status === 'ready',
+      drop: request => this.upload(instanceId, request.files),
+    })
   }
 
   /** Move or rename one entry, refusing overwrite in the Host. */

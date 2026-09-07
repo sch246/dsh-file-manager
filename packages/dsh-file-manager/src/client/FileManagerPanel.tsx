@@ -33,6 +33,7 @@ interface FileManagerPanelActions extends FileManagerPanelInjected {
   move(source: string, destination: string): void
   remove(path: string, mode: FileManagerDeleteMode, confirmed: boolean): void
   restore(path: string): void
+  download(path: string): void
   clearError(): void
 }
 
@@ -145,6 +146,10 @@ function EntryRow({
           <button type="button" className="dsh-file-manager-row-action" title={actions.t('renameMove')} aria-label={actions.t('renameMove')} onClick={move}>
             <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="m12 3 5 5-9 9H3v-5zM10 5l5 5" /></svg>
           </button>
+          {entry.kind === 'file' && actions.manager.transfersAvailable && <button type="button" className="dsh-file-manager-row-action" title={actions.t('download')} aria-label={actions.t('download')}
+            onClick={() => { actions.download(entry.path) }}>
+            <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="M10 2v11m-4-4 4 4 4-4M3 13v4h14v-4" /></svg>
+          </button>}
           <button type="button" className="dsh-file-manager-row-action is-danger" title={actions.t('delete')} aria-label={actions.t('delete')} onClick={remove}>
             <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="M3 5h14M7 5V3h6v2M5 5l1 12h8l1-12M8 8v6M12 8v6" /></svg>
           </button>
@@ -155,10 +160,11 @@ function EntryRow({
   )
 }
 
-function DirectoryActions({ actions, snapshot, create }: {
+function DirectoryActions({ actions, snapshot, create, upload }: {
   readonly actions: FileManagerPanelActions
   readonly snapshot: FileManagerSnapshot
   readonly create: (kind: 'file' | 'directory') => void
+  readonly upload: () => void
 }) {
   const [open, setOpen] = useState(false)
   const container = useRef<HTMLDivElement>(null)
@@ -190,6 +196,7 @@ function DirectoryActions({ actions, snapshot, create }: {
   const entries = [
     { key: 'newFile' as const, slot: 'file', run: () => create('file'), path: 'M5 2.5h6l4 4v11H5zM11 2.5v4h4M7 12h6M10 9v6' },
     { key: 'newFolder' as const, slot: 'folder', run: () => create('directory'), path: 'M2.5 5.5h6l2 2h7v10h-15zM7 12h6M10 9v6' },
+    ...(actions.manager.transfersAvailable ? [{ key: 'upload' as const, slot: 'upload', run: upload, path: 'M10 14V3m-4 4 4-4 4 4M3 13v4h14v-4' }] : []),
     { key: 'refresh' as const, slot: 'refresh', run: actions.refresh, path: 'M16 7a6.5 6.5 0 1 0 .5 5M16 2v5h-5' },
   ]
   return <div ref={container} className="dsh-file-manager-directory-actions" data-open={open || undefined}
@@ -242,9 +249,12 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t }: Fi
     move: (source, destination) => { void manager.move(instanceId, source, destination) },
     remove: (path, mode, confirmed) => { void manager.remove(instanceId, path, mode, confirmed) },
     restore: path => { void manager.restoreFromTrash(instanceId, path) },
+    download: path => { void manager.download(instanceId, path) },
     clearError: () => { manager.clearError(instanceId) },
   }
   const snapshot = useSyncExternalStore(actions.subscribe, actions.snapshot, actions.snapshot)
+  const uploadInput = useRef<HTMLInputElement>(null)
+  useEffect(() => manager.registerFileDrop(instanceId), [manager, instanceId])
   const visiblePaths = filterLoadedTree(snapshot)
   const [address, setAddress] = useState(snapshot.address)
   useEffect(() => { setAddress(snapshot.address) }, [snapshot.address])
@@ -272,7 +282,6 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t }: Fi
           />
         </label>
         {snapshot.filter !== '' && <button type="button" onClick={() => { actions.setFilter('') }}>{actions.t('clearFilter')}</button>}
-        <span className="dsh-file-manager-filter-scope">{actions.t('filterScope')}</span>
       </div>}
       {snapshot.error !== undefined && (
         <div className="dsh-file-manager-error" role="alert">
@@ -288,8 +297,14 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t }: Fi
       {snapshot.status === 'loading' && <div className="dsh-file-manager-state" role="status">{actions.t('loading')}</div>}
       {snapshot.directory !== undefined && isInsideTrash(snapshot.directory.path, snapshot.trashDirectory) && <div className="dsh-file-manager-trash-scope" role="note">{actions.t('trashScope')}</div>}
       {snapshot.directory !== undefined && (
-        <div className="dsh-file-manager-tree-area">
-          <DirectoryActions actions={actions} snapshot={snapshot} create={create} />
+        <div className="dsh-file-manager-tree-area" data-transfers={manager.transfersAvailable || undefined}>
+          {manager.transfersAvailable && <input ref={uploadInput} type="file" multiple hidden aria-label={t('upload')}
+            onChange={event => {
+              const files = [...event.currentTarget.files ?? []]
+              event.currentTarget.value = ''
+              if (files.length > 0) void manager.upload(instanceId, files)
+            }} />}
+          <DirectoryActions actions={actions} snapshot={snapshot} create={create} upload={() => { uploadInput.current?.click() }} />
           <div className="dsh-file-manager-tree" role="tree">
             <div className="dsh-file-manager-tree-content">
               {snapshot.directory.parent !== undefined && (

@@ -32,6 +32,7 @@
     "src/remote.ts",
     "src/filesystem.ts",
     "src/types.ts",
-    "src/trash.ts"
+    "src/trash.ts",
+    "src/transfers.ts"
   ]
 }

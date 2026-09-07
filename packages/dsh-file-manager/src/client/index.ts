@@ -17,6 +17,7 @@ import {
   type FileManagerGateway,
 } from './service.ts'
 import { FILE_MANAGER_CSS } from './styles.ts'
+import { browserFileTransfers } from './transfers.ts'
 import { browserPreferenceStorage } from './preferences.ts'
 
 export type {
@@ -36,7 +37,10 @@ function valueOf<T>(result: RemoteResult<T>): T {
 }
 
 async function registerRuntime(ctx: Context): Promise<() => void> {
-  const metadata = valueOf(await ctx.remote.fileManager.metadata())
+  const [metadata, nativeAvailable] = await Promise.all([
+    ctx.remote.fileManager.metadata().then(valueOf),
+    ctx.remote.session.canOpenWorkspacePath().then(valueOf),
+  ])
   const remoteGateway: FileManagerGateway = {
     initialLocation: async (sessionId, signal) => valueOf(
       await ctx.remote.fileManager.initialLocation({ sessionId }, signal),
@@ -74,6 +78,7 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
     metadata.deleteMode,
     browserPreferenceStorage,
     metadata.trashDirectory,
+    ctx.remote.$host.isLoopback && nativeAvailable ? undefined : browserFileTransfers,
   )
 
   const offDirectoryOpen = ctx.on('chat/open-workspace-file', async (request, next) => {

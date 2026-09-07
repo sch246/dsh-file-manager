@@ -6,7 +6,7 @@
 
 - The Files launcher opens a Session-owned `file-manager-tree` instance in `@dsh-external/dsh-right-sidebar`.
 - Session cwd is the initial directory only. The editable address accepts absolute paths anywhere the Host service process can access.
-- The path input stays visible; Enter navigates. New file, New folder, Refresh, and More float outside the scroll container, aligned with the first list row at rest, on hover or keyboard focus. Touch devices show More as the expansion target with the other actions inside it. Narrow panes progressively move Refresh, New folder, and New file into More.
+- The path input stays visible; Enter navigates. New file, New folder, optional Upload, Refresh, and More float outside the scroll container, aligned with the first list row at rest, on hover or keyboard focus. Touch devices show More as the expansion target with the other actions inside it. Narrow panes progressively move Refresh, New folder, and New file into More.
 - Directories load lazily. Non-overlapping polling refreshes the current and expanded loaded directories while retaining expansion, selection, filter, and the mounted scroll container; failed listings remain visible with an error.
 - More contains browser-persisted Show hidden files, Move to trash when deleting, and Filter switches. Filter reveals an input only while enabled; disabling it stops filtering and retains each tree's query. The loaded-tree filter matches names and relative paths, keeps matching ancestors, and never scans unloaded directories as the user types.
 - Browser reload restores each tree's current root, expanded directories, selection, and filter query. The v2 descriptor excludes browser preferences; v1 navigation remains readable without restoring its hidden-entry value. Cleanup runs only after the sidebar authoritatively removes the instance.
@@ -26,15 +26,28 @@ The Bundle inserts:
     directoryPollIntervalMs: 2000
     deleteMode: trash
     moveCommand: mv
+    maxUploadBytes: 10737418240
 ```
 
 `directoryPollIntervalMs` delays loaded-directory refresh cycles after the previous cycle completes. `deleteMode` initializes the browser preference only when no saved preference exists. Profile and Home patches replace complete config rows, so preserve unrelated fields when overriding one.
 
 ## Filesystem ownership
 
-The shared user-files provider owns Session cwd resolution, canonical metadata, bounded text/byte reads and one guarded publication queue. Viewer owns the filesystem source and its resource polling. Manager owns directory listings, creation, moving and deletion; it uses shared canonical metadata while retaining the visible link path for mutation. See the provider's package reference for revision, EOL and content limits.
+The shared user-files provider owns Session cwd resolution, canonical metadata, bounded text/byte reads and one guarded publication queue. Viewer owns the filesystem source and its resource polling. Manager owns directory listings, creation, moving, deletion and streaming browser transfers; it uses shared canonical metadata while retaining the visible link path for mutation. See the provider's package reference for revision, EOL and content limits.
 
 Create operations use exclusive filesystem creation. Moves use the configured GNU `moveCommand` with `--no-clobber`, `--no-copy`, and `--no-target-directory`; a late destination cannot be replaced on the current Linux filesystem's no-replace rename path. Cross-filesystem moves and hosts without these GNU options fail without a copy/delete fallback. The default command is `mv`; configure its executable path when needed. See [GNU mv](https://www.gnu.org/s/coreutils/manual/html_node/mv-invocation.html).
+
+## Browser transfers
+
+Upload and per-file Download appear when the public Host facts do not report both a loopback connection and an available native workspace opener (`remote.$host.isLoopback` and `session.canOpenWorkspacePath()`). Upload sits alongside the creation actions and moves into More in narrow panes; Download sits immediately left of Delete for regular files. The filter has no loaded-folder helper text; filtering still searches loaded entries only.
+
+Upload accepts multiple selected files or files dropped on the active manager group's content. It captures the displayed root directory, streams files sequentially, and creates each original filename exclusively. Expanded folders do not change the destination. Navigation, superseding operations and committed tree close cancel unfinished uploads; files already published remain. The first failed file stops the batch and appears in the tree error area. Sidebar 0.0.2 or newer owns group targeting and drag consumption; manager registers its mounted tree and owns upload semantics.
+
+The exact `/api/file-manager/transfer` route uses the same `connection.requestRejection()` Host/Origin and cookie authentication as user-files Remote calls. PUT streams raw bytes into a private temporary directory on the destination filesystem, then publishes through the shared mutation queue using a no-clobber hard link. Failures and cancellation remove staging data; filesystems without hard-link support fail visibly without a fallback. `maxUploadBytes` defaults to 10 GiB per file and is checked before known-length uploads and while streaming every body. It is independent of provider text/byte read limits and the JSON gateway body limit. A completed publication remains a filesystem operation even if the browser disconnects before acknowledgement.
+
+HEAD checks download access before the browser receives a download link. GET streams regular-file bytes with the original visible filename in Content-Disposition. Binary data and empty files are supported without whole-file JSON, base64, or browser Blob buffering. The browser download manager owns progress, cancellation and errors after handoff. Downloads read the opened file and its initial size; external in-place writes can affect bytes during transfer, so this is not a snapshot of a concurrently changing file.
+
+The Web composition must provide `connection` and `webServer`. A reverse proxy must forward this route with the existing Host/Origin and cookie policy. Preserve the deployment's upstream and forwarding headers when adding an exact nginx location; set `client_max_body_size 10g` (or the configured upload bound), `proxy_request_buffering off`, and `proxy_buffering off`. Preserve appropriate transfer timeouts for the deployment. Do not raise the unrelated JSON route's body limit to enable binary transfers.
 
 ## Removal safety
 
