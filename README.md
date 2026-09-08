@@ -55,7 +55,7 @@ Create operations use exclusive filesystem creation. Moves use the configured GN
 
 ## Browser transfers
 
-Upload and per-file Download appear when the public Host facts do not report both a loopback connection and an available native workspace opener (`remote.$host.isLoopback` and `session.canOpenWorkspacePath()`). Upload sits alongside the creation actions and moves into More in narrow panes; Download sits immediately left of Delete for regular files. The filter has no loaded-folder helper text; filtering still searches loaded entries only.
+Upload, per-file Download and the Parallel download checkbox appear only for remote connections (`remote.$host.isLoopback === false`). Local connections hide all three and do not register manager drop-upload regions, regardless of native opener availability. Upload sits alongside the creation actions and moves into More in narrow panes; Download sits immediately left of Delete for regular files. The filter has no loaded-folder helper text; filtering still searches loaded entries only.
 
 Upload accepts multiple selected files. With the optional `@dsh-external/dsh-file-drop` plugin, it also accepts files dropped on the visible manager panel. It captures the displayed root directory, streams files sequentially, and creates each original filename exclusively. Expanded folders do not change the destination. Navigation, superseding operations and committed tree close cancel unfinished uploads; files already published remain. The first failed file stops the batch and appears in the tree error area. The optional plugin owns native-file event routing; manager owns its panel region, acceptance, upload behavior and visual feedback.
 

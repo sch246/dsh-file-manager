@@ -39,10 +39,7 @@ function valueOf<T>(result: RemoteResult<T>): T {
 }
 
 async function registerRuntime(ctx: Context): Promise<() => void> {
-  const [metadata, nativeAvailable] = await Promise.all([
-    ctx.remote.fileManager.metadata().then(valueOf),
-    ctx.remote.session.canOpenWorkspacePath().then(valueOf),
-  ])
+  const metadata = valueOf(await ctx.remote.fileManager.metadata())
   const remoteGateway: FileManagerGateway = {
     initialLocation: async (sessionId, signal) => valueOf(
       await ctx.remote.fileManager.initialLocation({ sessionId }, signal),
@@ -80,7 +77,7 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
     metadata.deleteMode,
     browserPreferenceStorage,
     metadata.trashDirectory,
-    ctx.remote.$host.isLoopback && nativeAvailable ? undefined : browserFileTransfers,
+    ctx.remote.$host.isLoopback ? undefined : browserFileTransfers,
   )
 
   const offDirectoryOpen = ctx.on('chat/open-workspace-file', async (request, next) => {
