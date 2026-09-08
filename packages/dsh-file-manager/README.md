@@ -6,7 +6,6 @@ This Bundle provides an authenticated Web Files tree using service-process files
 | --- | --- | --- |
 | `directoryPollIntervalMs` | `2000` | Delay after each completed loaded-directory refresh. |
 | `deleteMode` | `trash` | Initial preference when browser storage has none. |
-| `maxUploadBytes` | `10737418240` | Inclusive streaming upload limit per file. |
 | `moveCommand` | `mv` | GNU executable supporting no-clobber/no-copy moves. |
 
 Profile/Home overrides replace the complete config row. Viewer read/save content limits belong to user-files; `resourcePollIntervalMs` belongs to Viewer. Preserve effective values when migrating existing complete rows.
@@ -17,14 +16,14 @@ One Session tree retains its address, loaded expansion, visible selection and fi
 
 File clicks persist the visible row path and call `openWorkspaceFile` with its canonical path, preview/pin intent and placement to the right of the tree. Manager's waterfall listener resolves shared metadata, handles directories, and calls `next()` for files. Metadata and accepted-handler errors propagate. Without a viewing handler, Host native opening remains available and reports its original failure. Manager imports no Viewer code, descriptors or source IDs.
 
-The `fileManager` Remote exposes metadata, initialLocation, trashLocation, list, create, move, restore and deleteEntry. Shared `ctx.userFiles` owns Session-relative path resolution and canonical metadata; viewer content reads and its save queue remain provider-owned; manager owns the authenticated streaming upload/download route. Listing follows usable symbolic links while retaining visible paths for moving and deletion. Create is exclusive. Move refuses replacement and cross-filesystem copying. Trash receives literal paths and never falls back to permanent deletion. Root is protected; permanent deletion requires one confirmation and unlinks links without traversing targets.
+The `fileManager` Remote exposes metadata, initialLocation, trashLocation, list, create, move, restore and deleteEntry. Shared `ctx.userFiles` owns Session-relative path resolution and canonical metadata; viewer content reads and its save queue remain provider-owned; user-files also owns the authenticated streaming upload/download route. Listing follows usable symbolic links while retaining visible paths for moving and deletion. Create is exclusive. Move refuses replacement and cross-filesystem copying. Trash receives literal paths and never falls back to permanent deletion. Root is protected; permanent deletion requires one confirmation and unlinks links without traversing targets.
 
 Open trash browses the provider's Linux home files directory without creating it. WSL, unsupported platforms and missing/inaccessible locations fail visibly. It does not aggregate volumes or reconstruct display names. Delete anywhere under the trash root requires explicit permanent confirmation; root/files/info themselves are protected. Restore applies only to direct files children with a valid absolute original path in their own regular `.trashinfo` record; occupied destinations preserve both the item and its record. Successful restoration and permanent deletion of a direct child clean its record; cleanup errors identify the already-completed file operation. Shared user-files serializes these mutations with saves. Provider lookup failures reject deletion; unsupported platforms retain ordinary deletion behavior. Browser deletion, hidden-file and filter visibility preferences remain separate from tree restoration. Only committed sidebar close releases feature state.
 
 | Source | Responsibility |
 | --- | --- |
 | `src/filesystem.ts` | Directory listing and mutations through shared canonical metadata. |
-| `src/transfers.ts` | Cookie-authenticated raw streaming, exclusive upload publication and transfer cleanup. |
+| `src/client/transfers.ts` | Upload batches and browser download handoff through the shared provider URL helper. |
 | `src/remote.ts` | Directory Remote and typed management failures. |
 | `src/client/service.ts` | Tree state, directory polling, restoration and common opening requests. |
 | `src/client/FileManagerDropOverlay.tsx` | Optional region lifecycle, readiness feedback and manager-owned upload illustration. |

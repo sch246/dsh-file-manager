@@ -4,7 +4,6 @@ import z from '@deepseek-ai/schemastery'
 import trash from 'trash'
 import { FileManagerFilesystem } from './filesystem.ts'
 import { FileManagerRemote } from './remote.ts'
-import { registerFileTransfers } from './transfers.ts'
 import { homeTrashPaths } from './trash.ts'
 
 export type * from './types.ts'
@@ -12,7 +11,7 @@ export { FileManagerFilesystem, FileManagerFilesystemError } from './filesystem.
 export { FileManagerRemote } from './remote.ts'
 
 export const name = 'file-manager'
-export const inject = ['userFiles', 'connection', 'webServer']
+export const inject = ['userFiles']
 
 /** Host deployment configuration. */
 export interface Config {
@@ -22,8 +21,6 @@ export interface Config {
   deleteMode: 'trash' | 'permanent'
   /** GNU mv executable; unsupported platforms fail without copying or deleting the source. */
   moveCommand: string
-  /** Inclusive raw-binary upload size bound. */
-  maxUploadBytes: number
 }
 
 /** Validated deployment tunables. */
@@ -31,7 +28,6 @@ export const Config: z<Config> = z.object({
   directoryPollIntervalMs: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).required(),
   deleteMode: z.union(['trash', 'permanent'] as const).default('trash'),
   moveCommand: z.string().min(1).default('mv'),
-  maxUploadBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(10 * 1024 ** 3),
 })
 
 /** Mount the authenticated user-filesystem Remote. */
@@ -43,5 +39,4 @@ export function apply(ctx: Context, config: Config): void {
     homeTrashPaths,
   )
   new FileManagerRemote(ctx, filesystem, config)
-  registerFileTransfers(ctx, config.maxUploadBytes)
 }

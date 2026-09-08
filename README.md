@@ -43,14 +43,13 @@ The Bundle inserts:
     directoryPollIntervalMs: 2000
     deleteMode: trash
     moveCommand: mv
-    maxUploadBytes: 10737418240
 ```
 
 `directoryPollIntervalMs` delays loaded-directory refresh cycles after the previous cycle completes. `deleteMode` initializes the browser preference only when no saved preference exists. Profile and Home patches replace complete config rows, so preserve unrelated fields when overriding one.
 
 ## Filesystem ownership
 
-The shared user-files provider owns Session cwd resolution, canonical metadata, bounded text/byte reads and one guarded publication queue. Viewer owns the filesystem source and its resource polling. Manager owns directory listings, creation, moving, deletion and streaming browser transfers; it uses shared canonical metadata while retaining the visible link path for mutation. See the provider's package reference for revision, EOL and content limits.
+The shared user-files provider owns Session cwd resolution, canonical metadata, bounded text/byte reads and one guarded publication queue. Viewer owns the filesystem source and its resource polling. Manager owns directory listings, creation, moving, deletion and browser transfer controls; it uses shared canonical metadata while retaining the visible link path for mutation. See the provider's package reference for revision, EOL and content limits.
 
 Create operations use exclusive filesystem creation. Moves use the configured GNU `moveCommand` with `--no-clobber`, `--no-copy`, and `--no-target-directory`; a late destination cannot be replaced on the current Linux filesystem's no-replace rename path. Cross-filesystem moves and hosts without these GNU options fail without a copy/delete fallback. The default command is `mv`; configure its executable path when needed. See [GNU mv](https://www.gnu.org/s/coreutils/manual/html_node/mv-invocation.html).
 
@@ -64,11 +63,9 @@ The manager panel covers only its group content, excluding sidebar tabs. During 
 
 File-drop is an optional peer (`^0.1.0`), absent from manager's Bundle and required Client injection list. Install its independent Bundle only when drag upload is wanted. Manager uses an unawaited optional service subscription for each mounted panel, so a missing, later-loaded or removed provider never disables browsing, button upload or download. Removing the provider clears the overlay and unregisters its regions; removing manager retains the standalone plugin for other consumers. The standalone plugin depends on no manager, sidebar or Viewer feature.
 
-The exact `/api/file-manager/transfer` route uses the same `connection.requestRejection()` Host/Origin and cookie authentication as user-files Remote calls. PUT streams raw bytes into a private temporary directory on the destination filesystem, then publishes through the shared mutation queue using a no-clobber hard link. Failures and cancellation remove staging data; filesystems without hard-link support fail visibly without a fallback. `maxUploadBytes` defaults to 10 GiB per file and is checked before known-length uploads and while streaming every body. It is independent of provider text/byte read limits and the JSON gateway body limit. A completed publication remains a filesystem operation even if the browser disconnects before acknowledgement.
+Manager uses the browser-safe `@dsh-external/dsh-user-files/transfer` URL helper for the provider-owned `/api/user-files/transfer` endpoint. It retains upload batches, destination selection, cancellation and browser download handoff; the provider owns authentication, streaming and exclusive publication. HEAD checks access before handing the URL to the browser download manager, which owns subsequent download progress and errors.
 
-HEAD checks download access before the browser receives a download link. GET streams regular-file bytes with the original visible filename in Content-Disposition. Binary data and empty files are supported without whole-file JSON, base64, or browser Blob buffering. The browser download manager owns progress, cancellation and errors after handoff. Downloads read the opened file and its initial size; external in-place writes can affect bytes during transfer, so this is not a snapshot of a concurrently changing file.
-
-The Web composition must provide `connection` and `webServer`. A reverse proxy must forward this route with the existing Host/Origin and cookie policy. Preserve the deployment's upstream and forwarding headers when adding an exact nginx location; set `client_max_body_size 10g` (or the configured upload bound), `proxy_request_buffering off`, and `proxy_buffering off`. Preserve appropriate transfer timeouts for the deployment. Do not raise the unrelated JSON route's body limit to enable binary transfers.
+Install user-files ^0.1.10 with the Web composition's `connection` and `webServer` services. Preserve the effective old manager `maxUploadBytes` value in the complete user-files config row, then remove that field from manager. The provider default is 10 GiB per file. Migrate any exact reverse-proxy location from `/api/file-manager/transfer` to `/api/user-files/transfer`, retaining upstream headers, cookie policy, matching request limits, disabled request/response buffering and appropriate timeouts. The provider package reference owns the HTTP protocol and streaming limitations.
 
 ## Removal safety
 
@@ -113,4 +110,4 @@ First installation is a high-risk Bundle change. Validate it in a private Home w
 
 Setup reuses a shared provider satisfying every installed consumer and the incoming manager's API range, or includes the missing provider in the same `dsh plugin add` transaction. An incompatible provider fails with its consumer/range. Manager removal retains sidebar and user-files. Shared-provider removal checks remaining consumer manifests. The [installation map](.intent/state/STATE.md) owns effective configuration and receipt migration.
 
-Directory changes share the sidebar navigation request with common file-opening handlers. Resolution and listing use its cancellation signal; only a successful commit changes the tree destination and group history. Replay restores the directory, expansion, filter and selection without adding history. A Session retains one tree: external directory requests reuse its actual group, while new trees honor requested placement. Requires sidebar >=0.0.5 <0.1.0 and user-files ^0.1.9; viewer remains optional.
+Directory changes share the sidebar navigation request with common file-opening handlers. Resolution and listing use its cancellation signal; only a successful commit changes the tree destination and group history. Replay restores the directory, expansion, filter and selection without adding history. A Session retains one tree: external directory requests reuse its actual group, while new trees honor requested placement. Requires sidebar >=0.0.5 <0.1.0 and user-files ^0.1.10; viewer remains optional.

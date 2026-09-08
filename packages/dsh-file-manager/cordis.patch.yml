@@ -5,4 +5,3 @@
         directoryPollIntervalMs: 2000
         deleteMode: trash
         moveCommand: mv
-        maxUploadBytes: 10737418240
