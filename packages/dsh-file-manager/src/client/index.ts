@@ -7,6 +7,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@dsh-external/dsh-user-files/remote'
+import type {} from '@dsh-external/dsh-user-files/file-location'
 import { openWorkspaceFile } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { RightSidebarService } from '@dsh-external/dsh-right-sidebar/client'
 import fileManagerRemote from '@dsh-external/dsh-file-manager/remote'
@@ -22,7 +23,7 @@ import { browserFileTransfers } from './transfers.ts'
 import { browserPreferenceStorage } from './preferences.ts'
 
 export type {
-  FileManagerGateway, FileManagerResourceOpener, FileManagerRestoreDescriptor,
+  FileManagerGateway, FileManagerOpenOptions, FileManagerResourceOpener, FileManagerRestoreDescriptor,
   FileManagerSelection, FileManagerSnapshot,
 } from './service.ts'
 export {
@@ -83,9 +84,13 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
   )
 
   const offDirectoryOpen = ctx.on('chat/open-workspace-file', async (request, next) => {
-    const resolved = valueOf(await ctx.remote.userFiles.resolve({ sessionId: request.sessionId, path: request.path }, request.signal))
+    const signal = request.signal ?? new AbortController().signal
+    const resolved = valueOf(await ctx.remote.userFiles.resolve({ sessionId: request.sessionId, path: request.path }, signal))
     if (resolved.kind !== 'directory') return next()
-    await runtime.open(request.sessionId, { path: resolved.path })
+    await runtime.open(request.sessionId, { path: resolved.path }, {
+      ...(request.target === undefined ? {} : { target: request.target }),
+      ...(request.sourceInstanceId === undefined ? {} : { sourceInstanceId: request.sourceInstanceId }),
+    })
   })
   const unregisterLauncher = sidebar.registerLauncher({
     id: 'file-manager',

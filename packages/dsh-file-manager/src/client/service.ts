@@ -1,6 +1,7 @@
 import type { FileManagerTransfers } from './transfers.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ChatFileOpenRequest } from '@deepseek-ai/dsh-client-ui-chat/client'
+import type {} from '@dsh-external/dsh-user-files/file-location'
 import type { UserFileResolvedPath } from '@dsh-external/dsh-user-files/types'
 import type { RightSidebarService } from '@dsh-external/dsh-right-sidebar/client'
 import { readDeleteMode, saveDeleteMode, readManagerSwitch, saveManagerSwitch, type FileManagerPreferenceStorage } from './preferences.ts'
@@ -69,6 +70,16 @@ interface RecordState {
 
 /** Accepted external selection for the `file-manager` launcher. */
 export interface FileManagerSelection { readonly path: string }
+
+/** Placement and destination intent for opening the Session tree. */
+export interface FileManagerOpenOptions {
+  /** Sidebar destination; omission uses the active group. */
+  readonly target?: ChatFileOpenRequest['target']
+  /** Replace an unpinned preview in the destination group. */
+  readonly preview?: boolean
+  /** Instance the open started from; when it owns this tree the tree moves instead of reopening. */
+  readonly sourceInstanceId?: string
+}
 
 /** JSON-safe tree state persisted by the sidebar workbench. */
 export interface FileManagerRestoreDescriptor {
@@ -246,11 +257,15 @@ export class FileManagerService {
   }
 
   /** Open or focus the Session tree and optionally select a path. */
-  async open(sessionId: SessionId, rawSelection?: unknown): Promise<string> {
+  async open(sessionId: SessionId, rawSelection?: unknown, options: FileManagerOpenOptions = {}): Promise<string> {
     this.#assertLive()
     const selection = parseFileManagerSelection(rawSelection)
     const instanceId = `file-manager-tree:${String(sessionId)}`
     let record = this.#records.get(instanceId)
+    if (record !== undefined && options.sourceInstanceId === instanceId && selection !== undefined) {
+      await this.#navigate(record, selection.path, this.#descriptor(record.snapshot))
+      return instanceId
+    }
     if (record === undefined) {
       record = {
         snapshot: {
@@ -280,6 +295,10 @@ export class FileManagerService {
           restoreDescriptor: this.#descriptor(record.snapshot),
           onClosed: () => { this.close(instanceId) },
           onNavigate: descriptor => this.restoreNavigation(instanceId, descriptor),
+        }, {
+          ...(options.target === undefined ? {} : { target: options.target }),
+          ...(options.preview === undefined ? {} : { preview: options.preview }),
+          commit: () => ({ descriptor: this.#descriptor(this.#record(instanceId).snapshot) }),
         })
       } catch (error: unknown) {
         this.close(instanceId)
@@ -484,6 +503,8 @@ export class FileManagerService {
         path: entry.canonicalPath,
         target: { fromInstanceId: instanceId, direction: 'right' },
         preview,
+        replace: 'current',
+        sourceInstanceId: instanceId,
       })
     } catch (error: unknown) {
       if (this.#records.get(instanceId) !== record || record.resourceOpenGeneration !== generation) return
