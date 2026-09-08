@@ -11,7 +11,7 @@ This Bundle provides an authenticated Web Files tree using service-process files
 
 Profile/Home overrides replace the complete config row. Viewer read/save content limits belong to user-files; `resourcePollIntervalMs` belongs to Viewer. Preserve effective values when migrating existing complete rows.
 
-Each mounted tree supports directory back/forward through mouse side buttons and focused Alt+Left/Right. History is in-memory and commits only after a successful listing; input editing retains its keyboard events. See the repository [behavior reference](../../README.md#behavior) for history and restoration semantics.
+Each mounted tree contributes directory destinations to its sidebar group’s history. Sidebar >=0.0.4 owns the single stack, mouse side buttons, Alt+Left/Right and stable replay focus. Manager restores destinations and records only successful directory changes. See the repository [behavior reference](../../README.md#behavior) for history and restoration semantics.
 
 One Session tree retains its address, loaded expansion, visible selection and filter through refresh and sidebar restoration. The v2 descriptor excludes browser preferences; v1 restoration cannot replace current preferences. The path input stays visible; directory actions float outside the scroll container at its top and retain keyboard/touch access through More. Polling reads only the current and expanded loaded directories, keeps failed listings with their errors, and stops on disposal. Filtering searches loaded names and paths only; disabling it retains its query.
 

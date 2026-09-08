@@ -124,7 +124,11 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
   }, FileManagerPanel))
   const unregisterRestorer = sidebar.registerRestorer('file-manager-tree', async context => {
     await runtime.restore(SessionId(context.sessionId), context.instanceId, context.descriptor)
-    return { onClosed: () => { runtime.close(context.instanceId) } }
+    return {
+      onClosed: () => { runtime.close(context.instanceId) },
+      onNavigate: descriptor => runtime.restoreNavigation(context.instanceId, descriptor),
+      onRestored: () => { sidebar.recordNavigation(context.sessionId, context.instanceId) },
+    }
   })
 
   return () => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent, type MouseEvent } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from 'react'
 import type { FileManagerDeleteMode, FileManagerDirectory, FileManagerEntry } from '../types.ts'
 import { FileManagerDropOverlay, type WatchFileDrop } from './FileManagerDropOverlay.tsx'
 import type { FileManagerLocaleKey } from './locales.ts'
@@ -229,17 +229,6 @@ function DirectoryActions({ actions, snapshot, create, upload }: {
   </div>
 }
 
-function editableTarget(target: EventTarget): boolean {
-  return target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]') !== null
-}
-
-function suppressSideButton(event: MouseEvent<HTMLElement>): boolean {
-  if (event.button !== 3 && event.button !== 4) return false
-  event.preventDefault()
-  event.stopPropagation()
-  return true
-}
-
 /** Render an Enter-navigable path and tree with first-row actions and optional filtering. */
 export function FileManagerPanel({ manager, instanceId, prompt, confirm, t, watchFileDrop }: FileManagerPanelProps) {
   const actions: FileManagerPanelActions = {
@@ -249,7 +238,10 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t, watc
     t,
     snapshot: () => manager.snapshot(instanceId),
     subscribe: listener => manager.subscribe(instanceId, listener),
-    navigate: path => { void manager.navigate(instanceId, path) },
+    navigate: path => {
+      if (panel.current?.contains(document.activeElement)) panel.current.focus({ preventScroll: true })
+      void manager.navigate(instanceId, path)
+    },
     refresh: () => { void manager.refresh(instanceId) },
     setShowHidden: show => { void manager.setShowHidden(instanceId, show) },
     setDeleteMode: mode => { manager.setDeleteMode(mode) },
@@ -281,23 +273,12 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t, watc
   }
   return (
     <section ref={panel} className="dsh-file-manager-root" tabIndex={0} aria-label={t('title')}
-      onKeyDown={event => {
-        if (event.defaultPrevented || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
-          || editableTarget(event.target) || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return
-        event.preventDefault()
-        event.stopPropagation()
-        if (!event.repeat) void manager.navigateHistory(instanceId, event.key === 'ArrowLeft' ? -1 : 1)
-      }}
       onMouseDown={event => {
-        if (suppressSideButton(event)) {
-          void manager.navigateHistory(instanceId, event.button === 3 ? -1 : 1)
-        } else if (event.button === 0 && event.target instanceof Element
+        if (event.button === 0 && event.target instanceof Element
           && event.target.closest('button, a, input, textarea, select, [contenteditable], [tabindex]') === event.currentTarget) {
           event.currentTarget.focus()
         }
-      }}
-      onMouseUp={suppressSideButton}
-      onAuxClick={suppressSideButton}>
+      }}>
       <form className="dsh-file-manager-address" onSubmit={submit}>
         <input aria-label={actions.t('address')} value={address} onChange={event => { setAddress(event.currentTarget.value) }} spellCheck={false} />
       </form>
