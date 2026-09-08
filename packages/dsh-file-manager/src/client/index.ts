@@ -77,7 +77,7 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
     metadata.deleteMode,
     browserPreferenceStorage,
     metadata.trashDirectory,
-    ctx.remote.$host.isLoopback ? undefined : browserFileTransfers,
+    browserFileTransfers,
   )
 
   const offDirectoryOpen = ctx.on('chat/open-workspace-file', async (request, next) => {
