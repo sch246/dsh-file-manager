@@ -48,6 +48,7 @@ export interface FileManagerSnapshot {
   readonly showHidden: boolean
   readonly filter: string
   readonly filterEnabled: boolean
+  readonly parallelDownload: boolean
   readonly deleteMode: FileManagerDeleteMode
   readonly directory?: FileManagerDirectory
   readonly expanded: Readonly<Record<string, FileManagerDirectory>>
@@ -229,6 +230,7 @@ export class FileManagerService {
   #deleteMode: FileManagerDeleteMode
   #showHidden: boolean
   #filterEnabled: boolean
+  #parallelDownload: boolean
   readonly #preferenceStorage: FileManagerPreferenceStorage | undefined
   readonly #records = new Map<string, RecordState>()
   #disposed = false
@@ -255,6 +257,7 @@ export class FileManagerService {
     this.#deleteMode = preferenceStorage === undefined ? deleteMode : readDeleteMode(preferenceStorage, deleteMode)
     this.#showHidden = readManagerSwitch(preferenceStorage, 'show-hidden')
     this.#filterEnabled = readManagerSwitch(preferenceStorage, 'filter-enabled')
+    this.#parallelDownload = readManagerSwitch(preferenceStorage, 'parallel-download')
   }
 
   /** Open or focus the Session tree and optionally select a path. */
@@ -278,6 +281,7 @@ export class FileManagerService {
           showHidden: this.#showHidden,
           filter: '',
           filterEnabled: this.#filterEnabled,
+          parallelDownload: this.#parallelDownload,
           deleteMode: this.#deleteMode,
           expanded: Object.freeze({}),
           refreshErrors: Object.freeze({}),
@@ -334,6 +338,7 @@ export class FileManagerService {
         showHidden: this.#showHidden,
         filter: descriptor.filter,
         filterEnabled: this.#filterEnabled,
+        parallelDownload: this.#parallelDownload,
         deleteMode: this.#deleteMode,
         expanded: Object.freeze({}),
         refreshErrors: Object.freeze({}),
@@ -418,6 +423,17 @@ export class FileManagerService {
     saveManagerSwitch(this.#preferenceStorage, 'filter-enabled', enabled)
     for (const record of this.#records.values()) {
       record.snapshot = { ...record.snapshot, filterEnabled: enabled }
+      this.#notify(record)
+    }
+  }
+
+  /** Change only subsequent download requests; keep the preference outside navigation history. @param enabled Whether to use parallel local-file downloads. */
+  setParallelDownload(enabled: boolean): void {
+    this.#assertLive()
+    this.#parallelDownload = enabled
+    saveManagerSwitch(this.#preferenceStorage, 'parallel-download', enabled)
+    for (const record of this.#records.values()) {
+      record.snapshot = { ...record.snapshot, parallelDownload: enabled }
       this.#notify(record)
     }
   }
@@ -541,12 +557,12 @@ export class FileManagerService {
     await this.#mutate(record, signal => transfers.upload(record.snapshot.sessionId, directory, files, signal))
   }
 
-  /** Download a regular file under the tree foreground-operation lifetime. @param instanceId Owning tree. @param path Visible file path. @param onProgress Local write progress when direct writing is supported. @param nativeOnly Explicit ordinary download. @returns Local commit or native browser handoff, with failures retained in the tree. */
-  async download(instanceId: string, path: string, onProgress?: (progress: DownloadProgress) => void, nativeOnly = false): Promise<void> {
+  /** Download a regular file under the tree foreground-operation lifetime. @param instanceId Owning tree. @param path Visible file path. @param onProgress Local write progress when direct writing is supported. @returns Local commit or native browser handoff, with failures retained in the tree. */
+  async download(instanceId: string, path: string, onProgress?: (progress: DownloadProgress) => void): Promise<void> {
     const record = this.#record(instanceId)
     if (this.transfers === undefined) return
     const transfers = this.transfers
-    await this.#mutate(record, signal => transfers.download(record.snapshot.sessionId, path, signal, onProgress, nativeOnly))
+    await this.#mutate(record, signal => transfers.download(record.snapshot.sessionId, path, signal, onProgress, !this.#parallelDownload))
   }
 
   /** Whether a live tree can accept a drop without interrupting foreground work. @param instanceId Destination tree. @returns True only when browser transfers and its current directory are ready. */

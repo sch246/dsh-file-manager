@@ -28,6 +28,7 @@ interface FileManagerPanelActions extends FileManagerPanelInjected {
   setDeleteMode(mode: FileManagerDeleteMode): void
   setFilter(filter: string): void
   setFilterEnabled(enabled: boolean): void
+  setParallelDownload(enabled: boolean): void
   openTrash(): void
   toggleExpanded(path: string): void
   openFile(entry: FileManagerEntry, preview: boolean): void
@@ -35,7 +36,7 @@ interface FileManagerPanelActions extends FileManagerPanelInjected {
   move(source: string, destination: string): void
   remove(path: string, mode: FileManagerDeleteMode, confirmed: boolean): void
   restore(path: string): void
-  download(path: string, nativeOnly?: boolean): void
+  download(path: string): void
   clearError(): void
 }
 
@@ -148,8 +149,8 @@ function EntryRow({
           <button type="button" className="dsh-file-manager-row-action" title={actions.t('renameMove')} aria-label={actions.t('renameMove')} onClick={move}>
             <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="m12 3 5 5-9 9H3v-5zM10 5l5 5" /></svg>
           </button>
-          {entry.kind === 'file' && actions.manager.transfersAvailable && <button type="button" className="dsh-file-manager-row-action" title={actions.t('downloadHint')} aria-label={actions.t('download')}
-            onClick={event => { actions.download(entry.path, event.shiftKey) }}>
+          {entry.kind === 'file' && actions.manager.transfersAvailable && <button type="button" className="dsh-file-manager-row-action" title={actions.t('download')} aria-label={actions.t('download')}
+            onClick={() => { actions.download(entry.path) }}>
             <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="M10 2v11m-4-4 4 4 4-4M3 13v4h14v-4" /></svg>
           </button>}
           <button type="button" className="dsh-file-manager-row-action is-danger" title={actions.t('delete')} aria-label={actions.t('delete')} onClick={remove}>
@@ -224,6 +225,10 @@ function DirectoryActions({ actions, snapshot, create, upload }: {
       <button type="button" role="menuitemcheckbox" aria-checked={snapshot.filterEnabled} onClick={() => { actions.setFilterEnabled(!snapshot.filterEnabled) }}>
         <span aria-hidden>{snapshot.filterEnabled ? '✓' : ''}</span>{actions.t('filter')}
       </button>
+      {actions.manager.transfersAvailable && <button type="button" role="menuitemcheckbox" aria-checked={snapshot.parallelDownload}
+        onClick={() => { actions.setParallelDownload(!snapshot.parallelDownload) }}>
+        <span aria-hidden>{snapshot.parallelDownload ? '✓' : ''}</span>{actions.t('parallelDownload')}
+      </button>}
       <button type="button" role="menuitem" title={actions.t('trashScope')} onClick={() => { setOpen(false); actions.openTrash() }}>{actions.t('openTrash')}</button>
     </div>}
   </div>
@@ -246,6 +251,7 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t, watc
     setDeleteMode: mode => { manager.setDeleteMode(mode) },
     setFilter: filter => { manager.setFilter(instanceId, filter) },
     setFilterEnabled: enabled => { manager.setFilterEnabled(enabled) },
+    setParallelDownload: enabled => { manager.setParallelDownload(enabled) },
     openTrash: () => { void manager.openTrash(instanceId) },
     toggleExpanded: path => { void manager.toggleExpanded(instanceId, path) },
     openFile: (entry, preview) => { void manager.openFile(instanceId, entry, preview) },
@@ -253,12 +259,12 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t, watc
     move: (source, destination) => { void manager.move(instanceId, source, destination) },
     remove: (path, mode, confirmed) => { void manager.remove(instanceId, path, mode, confirmed) },
     restore: path => { void manager.restoreFromTrash(instanceId, path) },
-    download: (path, nativeOnly) => {
+    download: path => {
       const generation = ++downloadGeneration.current
       setDownloadProgress(0)
       void manager.download(instanceId, path, progress => {
         if (downloadGeneration.current === generation) setDownloadProgress(progress.totalBytes === 0 ? 100 : Math.floor(100 * progress.completedBytes / progress.totalBytes))
-      }, nativeOnly).finally(() => { if (downloadGeneration.current === generation) setDownloadProgress(undefined) })
+      }).finally(() => { if (downloadGeneration.current === generation) setDownloadProgress(undefined) })
     },
     clearError: () => { manager.clearError(instanceId) },
   }
