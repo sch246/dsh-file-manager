@@ -9,7 +9,7 @@ export type FileManagerLocaleKey =
   | 'restore' | 'clearError'
   | 'loading' | 'empty' | 'expand' | 'collapse' | 'openDirectory' | 'openFile'
   | 'filter' | 'filterPlaceholder' | 'clearFilter' | 'noFilterResults'
-  | 'refreshFailed' | 'upload' | 'download' | 'dropUpload' | 'dropUnavailable' | 'dropDestination'
+  | 'downloadHint' | 'refreshFailed' | 'upload' | 'download' | 'dropUpload' | 'dropUnavailable' | 'dropDestination'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -52,6 +52,7 @@ export const en: Record<FileManagerLocaleKey, string> = {
   refreshFailed: 'Automatic refresh failed',
   upload: 'Upload files',
   download: 'Download',
+  downloadHint: 'Download (hold Shift for ordinary browser download)',
   dropUpload: 'Drop files here to upload',
   dropUnavailable: 'Wait until this folder is ready',
   dropDestination: 'Upload to',
@@ -91,6 +92,7 @@ export const zh: Record<FileManagerLocaleKey, string> = {
   refreshFailed: '自动刷新失败',
   upload: '上传文件',
   download: '下载',
+  downloadHint: '下载（按住 Shift 使用普通浏览器下载）',
   dropUpload: '将文件拖到此处上传',
   dropUnavailable: '请等待此文件夹准备就绪',
   dropDestination: '上传到',

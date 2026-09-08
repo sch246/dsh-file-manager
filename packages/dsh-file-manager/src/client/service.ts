@@ -1,3 +1,4 @@
+import type { DownloadProgress } from '@dsh-external/dsh-user-files/download'
 import type { FileManagerTransfers } from './transfers.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ChatFileOpenRequest } from '@deepseek-ai/dsh-client-ui-chat/client'
@@ -540,12 +541,12 @@ export class FileManagerService {
     await this.#mutate(record, signal => transfers.upload(record.snapshot.sessionId, directory, files, signal))
   }
 
-  /** Hand a regular-file download to the browser after an authenticated metadata check. @param instanceId Owning tree. @param path Visible file path. @returns Handoff completion; the browser owns subsequent progress and cancellation. */
-  async download(instanceId: string, path: string): Promise<void> {
+  /** Download a regular file under the tree foreground-operation lifetime. @param instanceId Owning tree. @param path Visible file path. @param onProgress Local write progress when direct writing is supported. @param nativeOnly Explicit ordinary download. @returns Local commit or native browser handoff, with failures retained in the tree. */
+  async download(instanceId: string, path: string, onProgress?: (progress: DownloadProgress) => void, nativeOnly = false): Promise<void> {
     const record = this.#record(instanceId)
     if (this.transfers === undefined) return
     const transfers = this.transfers
-    await this.#mutate(record, signal => transfers.download(record.snapshot.sessionId, path, signal))
+    await this.#mutate(record, signal => transfers.download(record.snapshot.sessionId, path, signal, onProgress, nativeOnly))
   }
 
   /** Whether a live tree can accept a drop without interrupting foreground work. @param instanceId Destination tree. @returns True only when browser transfers and its current directory are ready. */

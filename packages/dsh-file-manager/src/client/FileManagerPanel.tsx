@@ -35,7 +35,7 @@ interface FileManagerPanelActions extends FileManagerPanelInjected {
   move(source: string, destination: string): void
   remove(path: string, mode: FileManagerDeleteMode, confirmed: boolean): void
   restore(path: string): void
-  download(path: string): void
+  download(path: string, nativeOnly?: boolean): void
   clearError(): void
 }
 
@@ -148,8 +148,8 @@ function EntryRow({
           <button type="button" className="dsh-file-manager-row-action" title={actions.t('renameMove')} aria-label={actions.t('renameMove')} onClick={move}>
             <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="m12 3 5 5-9 9H3v-5zM10 5l5 5" /></svg>
           </button>
-          {entry.kind === 'file' && actions.manager.transfersAvailable && <button type="button" className="dsh-file-manager-row-action" title={actions.t('download')} aria-label={actions.t('download')}
-            onClick={() => { actions.download(entry.path) }}>
+          {entry.kind === 'file' && actions.manager.transfersAvailable && <button type="button" className="dsh-file-manager-row-action" title={actions.t('downloadHint')} aria-label={actions.t('download')}
+            onClick={event => { actions.download(entry.path, event.shiftKey) }}>
             <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden><path d="M10 2v11m-4-4 4 4 4-4M3 13v4h14v-4" /></svg>
           </button>}
           <button type="button" className="dsh-file-manager-row-action is-danger" title={actions.t('delete')} aria-label={actions.t('delete')} onClick={remove}>
@@ -231,6 +231,8 @@ function DirectoryActions({ actions, snapshot, create, upload }: {
 
 /** Render an Enter-navigable path and tree with first-row actions and optional filtering. */
 export function FileManagerPanel({ manager, instanceId, prompt, confirm, t, watchFileDrop }: FileManagerPanelProps) {
+  const [downloadProgress, setDownloadProgress] = useState<number>()
+  const downloadGeneration = useRef(0)
   const actions: FileManagerPanelActions = {
     manager,
     prompt,
@@ -251,7 +253,13 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t, watc
     move: (source, destination) => { void manager.move(instanceId, source, destination) },
     remove: (path, mode, confirmed) => { void manager.remove(instanceId, path, mode, confirmed) },
     restore: path => { void manager.restoreFromTrash(instanceId, path) },
-    download: path => { void manager.download(instanceId, path) },
+    download: (path, nativeOnly) => {
+      const generation = ++downloadGeneration.current
+      setDownloadProgress(0)
+      void manager.download(instanceId, path, progress => {
+        if (downloadGeneration.current === generation) setDownloadProgress(progress.totalBytes === 0 ? 100 : Math.floor(100 * progress.completedBytes / progress.totalBytes))
+      }, nativeOnly).finally(() => { if (downloadGeneration.current === generation) setDownloadProgress(undefined) })
+    },
     clearError: () => { manager.clearError(instanceId) },
   }
   const snapshot = useSyncExternalStore(actions.subscribe, actions.snapshot, actions.snapshot)
@@ -279,6 +287,9 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t, watc
       <form className="dsh-file-manager-address" onSubmit={submit}>
         <input aria-label={actions.t('address')} value={address} onChange={event => { setAddress(event.currentTarget.value) }} spellCheck={false} />
       </form>
+      {downloadProgress !== undefined && <div role="progressbar" aria-label={t('download')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={downloadProgress}
+        title={`${t('download')} ${downloadProgress}%`} style={{ height: 4, flexShrink: 0, background: `linear-gradient(to right, #000 ${downloadProgress}%, transparent ${downloadProgress}%)` }} />}
+
       {snapshot.filterEnabled && <div className="dsh-file-manager-filter">
         <label>
           <span>{actions.t('filter')}</span>

@@ -117,3 +117,7 @@ Start one sidebar navigation before resolving a directory, including common Host
 ## Maintenance verification
 
 Confirmed product behavior is maintained in this map. Do not regenerate a parallel UI, routing or service-workflow test suite from it. Use direct observation for the affected interaction; retain only useful external-contract, artifact-compatibility and mechanical-integrity checks, selecting them when that surface changes. The root manifest lists any retained check entry; it is not a mandatory maintenance gate. [The cleanup record](../logs/2026-09-08-test-authority-cleanup.md) explains the selection and what was actually checked.
+
+### Parallel file download
+
+Require user-files ^0.1.12 and reuse its browser-safe download helper. A normal Download click uses parallel positioned writes when the browser supports secure-context file selection; hold Shift on the same action to choose ordinary browser download. Advertise this choice in the button tooltip, and retain native handoff automatically for unsupported browsers. Display a straight black progress bar beneath the address based on completed local writes. Keep the destination picker within the original click before asynchronous metadata work. Custom downloads use the tree's cancellable foreground operation; navigation, close or superseding actions abort unfinished transfers and retain errors through the existing tree failure presentation. Keep byte transfer, retries, policy and version checks in user-files, without depending on viewer.
