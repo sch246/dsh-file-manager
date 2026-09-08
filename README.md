@@ -112,3 +112,5 @@ First installation is a high-risk Bundle change. Validate it in a private Home w
 - Harness supplies `openWorkspaceFile`, Session and authenticated Remote APIs.
 
 Setup reuses a shared provider satisfying every installed consumer and the incoming manager's API range, or includes the missing provider in the same `dsh plugin add` transaction. An incompatible provider fails with its consumer/range. Manager removal retains sidebar and user-files. Shared-provider removal checks remaining consumer manifests. The [installation map](.intent/state/STATE.md) owns effective configuration and receipt migration.
+
+Directory changes share the sidebar navigation request with common file-opening handlers. Resolution and listing use its cancellation signal; only a successful commit changes the tree destination and group history. Replay restores the directory, expansion, filter and selection without adding history. A Session retains one tree: external directory requests reuse its actual group, while new trees honor requested placement. Requires sidebar >=0.0.5 <0.1.0 and user-files ^0.1.9; viewer remains optional.

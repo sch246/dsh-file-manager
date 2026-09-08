@@ -238,10 +238,7 @@ export function FileManagerPanel({ manager, instanceId, prompt, confirm, t, watc
     t,
     snapshot: () => manager.snapshot(instanceId),
     subscribe: listener => manager.subscribe(instanceId, listener),
-    navigate: path => {
-      if (panel.current?.contains(document.activeElement)) panel.current.focus({ preventScroll: true })
-      void manager.navigate(instanceId, path)
-    },
+    navigate: path => { void manager.navigate(instanceId, path) },
     refresh: () => { void manager.refresh(instanceId) },
     setShowHidden: show => { void manager.setShowHidden(instanceId, show) },
     setDeleteMode: mode => { manager.setDeleteMode(mode) },

@@ -84,10 +84,18 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
   )
 
   const offDirectoryOpen = ctx.on('chat/open-workspace-file', async (request, next) => {
-    const signal = request.signal ?? new AbortController().signal
-    const resolved = valueOf(await ctx.remote.userFiles.resolve({ sessionId: request.sessionId, path: request.path }, signal))
+    const navigation = sidebar.beginNavigation(request.sessionId, {
+      request,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+      ...(request.target === undefined ? {} : { target: request.target }),
+      ...((request.sourceInstanceId ?? request.viewId) === undefined ? {} : { sourceInstanceId: request.sourceInstanceId ?? request.viewId }),
+    })
+    if (!navigation.current()) return
+    const resolved = valueOf(await ctx.remote.userFiles.resolve({ sessionId: request.sessionId, path: request.path }, navigation.signal))
+    if (!navigation.current()) return
     if (resolved.kind !== 'directory') return next()
     await runtime.open(request.sessionId, { path: resolved.path }, {
+      navigation,
       ...(request.target === undefined ? {} : { target: request.target }),
       ...(request.sourceInstanceId === undefined ? {} : { sourceInstanceId: request.sourceInstanceId }),
     })
@@ -131,7 +139,7 @@ async function registerRuntime(ctx: Context): Promise<() => void> {
     await runtime.restore(SessionId(context.sessionId), context.instanceId, context.descriptor)
     return {
       onClosed: () => { runtime.close(context.instanceId) },
-      onNavigate: descriptor => runtime.restoreNavigation(context.instanceId, descriptor),
+      onNavigate: (descriptor, navigation) => runtime.restoreNavigation(context.instanceId, descriptor, navigation),
       onRestored: () => { sidebar.recordNavigation(context.sessionId, context.instanceId) },
     }
   })
