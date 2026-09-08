@@ -59,6 +59,9 @@ interface RecordState {
   snapshot: FileManagerSnapshot
   readonly listeners: Set<() => void>
   resourceOpenGeneration: number
+  history: string[]
+  historyIndex: number
+  pendingHistoryIndex?: number
   checkpointEnabled: boolean
   restoreCheckpoint?: string
   controller?: AbortController
@@ -267,6 +270,8 @@ export class FileManagerService {
         },
         listeners: new Set(),
         resourceOpenGeneration: 0,
+        history: [],
+        historyIndex: -1,
         checkpointEnabled: false,
       }
       this.#records.set(instanceId, record)
@@ -314,6 +319,8 @@ export class FileManagerService {
       },
       listeners: new Set(),
       resourceOpenGeneration: 0,
+      history: [],
+      historyIndex: -1,
       checkpointEnabled: false,
     }
     this.#records.set(instanceId, record)
@@ -354,6 +361,14 @@ export class FileManagerService {
     await this.#navigate(this.#record(instanceId), path)
   }
 
+  /** Revisit a successfully loaded directory; unavailable steps do nothing and failed reads retain the current history position. @param instanceId Owning tree. @param direction Back (-1) or forward (1). @returns Completion with navigation errors retained in the tree. */
+  async navigateHistory(instanceId: string, direction: -1 | 1): Promise<void> {
+    const record = this.#record(instanceId)
+    const index = record.historyIndex + direction
+    const path = record.history[index]
+    if (path !== undefined) await this.#navigate(record, path, index)
+  }
+
   /** Refresh every currently displayed directory without clearing expansion or selection. */
   async refresh(instanceId: string): Promise<void> {
     const record = this.#record(instanceId)
@@ -372,7 +387,7 @@ export class FileManagerService {
       record.snapshot = { ...record.snapshot, showHidden }
       this.#notify(record)
       if (this.#records.get(record.snapshot.instanceId) !== record) return
-      if (record.snapshot.status === 'loading') await this.#navigate(record, record.snapshot.address || undefined)
+      if (record.snapshot.status === 'loading') await this.#navigate(record, record.snapshot.address || undefined, record.pendingHistoryIndex)
       else await this.refresh(record.snapshot.instanceId)
     }))
   }
@@ -575,8 +590,9 @@ export class FileManagerService {
     for (const id of [...this.#records.keys()]) this.close(id)
   }
 
-  async #navigate(record: RecordState, path?: string): Promise<void> {
+  async #navigate(record: RecordState, path?: string, historyIndex?: number): Promise<void> {
     const operation = this.#begin(record)
+    if (historyIndex !== undefined) record.pendingHistoryIndex = historyIndex
     record.snapshot = {
       ...withoutError(record.snapshot),
       status: 'loading',
@@ -594,6 +610,13 @@ export class FileManagerService {
         record.snapshot.sessionId, directory, record.snapshot.showHidden, operation.signal,
       )
       if (!this.#current(record, operation)) return
+      if (historyIndex !== undefined) {
+        record.history[historyIndex] = listing.path
+        record.historyIndex = historyIndex
+      } else if (record.history[record.historyIndex] !== listing.path) {
+        record.history.splice(record.historyIndex + 1, Infinity, listing.path)
+        record.historyIndex = record.history.length - 1
+      }
       const { selectedPath: _selectedPath, ...base } = withoutError(record.snapshot)
       record.snapshot = {
         ...base,
@@ -669,6 +692,7 @@ export class FileManagerService {
   #begin(record: RecordState): AbortController {
     this.#stopPolling(record)
     record.controller?.abort(new Error('file manager operation superseded'))
+    delete record.pendingHistoryIndex
     const controller = new AbortController()
     record.controller = controller
     return controller
@@ -677,6 +701,7 @@ export class FileManagerService {
   #finish(record: RecordState, controller: AbortController): void {
     if (!this.#current(record, controller)) return
     delete record.controller
+    delete record.pendingHistoryIndex
     this.#startPolling(record)
   }
 
@@ -690,10 +715,12 @@ export class FileManagerService {
     record.snapshot = {
       ...record.snapshot,
       status: record.snapshot.directory === undefined ? 'failed' : 'ready',
+      address: record.snapshot.directory?.path ?? record.snapshot.address,
       error: messageOf(error),
     }
     this.#notify(record)
     delete record.controller
+    delete record.pendingHistoryIndex
     if (record.snapshot.directory !== undefined) this.#startPolling(record)
   }
 

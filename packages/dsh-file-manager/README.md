@@ -11,6 +11,8 @@ This Bundle provides an authenticated Web Files tree using service-process files
 
 Profile/Home overrides replace the complete config row. Viewer read/save content limits belong to user-files; `resourcePollIntervalMs` belongs to Viewer. Preserve effective values when migrating existing complete rows.
 
+Each mounted tree supports directory back/forward through mouse side buttons and focused Alt+Left/Right. History is in-memory and commits only after a successful listing; input editing retains its keyboard events. See the repository [behavior reference](../../README.md#behavior) for history and restoration semantics.
+
 One Session tree retains its address, loaded expansion, visible selection and filter through refresh and sidebar restoration. The v2 descriptor excludes browser preferences; v1 restoration cannot replace current preferences. The path input stays visible; directory actions float outside the scroll container at its top and retain keyboard/touch access through More. Polling reads only the current and expanded loaded directories, keeps failed listings with their errors, and stops on disposal. Filtering searches loaded names and paths only; disabling it retains its query.
 
 File clicks persist the visible row path and call `openWorkspaceFile` with its canonical path, preview/pin intent and placement to the right of the tree. Manager's waterfall listener resolves shared metadata, handles directories, and calls `next()` for files. Metadata and accepted-handler errors propagate. Without a viewing handler, Host native opening remains available and reports its original failure. Manager imports no Viewer code, descriptors or source IDs.
